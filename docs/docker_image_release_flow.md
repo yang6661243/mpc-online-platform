@@ -10,17 +10,13 @@
 
 Git 只保存源码、Dockerfile、配置模板和部署脚本；Docker 镜像仓库保存可运行镜像；服务器只需要拉镜像和启动容器。
 
-## 一、准备 Git 仓库
+## 一、Git 仓库状态
 
-当前项目目录还不是 Git 仓库。第一次上传代码时执行：
+当前源码仓库：
 
-```bash
-git init
-git add .
-git commit -m "chore: prepare online mpc docker release"
-git branch -M main
-git remote add origin <你的 Git 仓库地址>
-git push -u origin main
+```text
+git@github.com:yang6661243/mpc-online-platform.git
+https://github.com/yang6661243/mpc-online-platform
 ```
 
 注意：
@@ -86,6 +82,29 @@ scripts/docker_release.sh \
 ```
 
 ## 四、服务器拉镜像运行
+
+### 方式 A：使用 bootstrap 脚本
+
+如果服务器可以访问 GitHub 仓库，推荐先拉源码，然后执行服务器 bootstrap 脚本：
+
+```bash
+git clone git@github.com:yang6661243/mpc-online-platform.git /opt/mpc-online
+cd /opt/mpc-online
+MPC_ONLINE_IMAGE=registry.cn-guangzhou.aliyuncs.com/<命名空间>/mpc-online:20260612-001 \
+  bash scripts/ecs_bootstrap_mpc_online.sh --install-docker --skip-git
+```
+
+如果镜像仓库还没准备好，也可以先在服务器本地构建测试：
+
+```bash
+git clone git@github.com:yang6661243/mpc-online-platform.git /opt/mpc-online
+cd /opt/mpc-online
+bash scripts/ecs_bootstrap_mpc_online.sh --install-docker --skip-git --build-local
+```
+
+私有 GitHub 仓库需要服务器已有读取权限，例如服务器专用 deploy key。当前本机 deploy key 只用于本机推送，不应复制私钥到服务器。
+
+### 方式 B：手动执行 compose
 
 服务器上创建运行目录：
 

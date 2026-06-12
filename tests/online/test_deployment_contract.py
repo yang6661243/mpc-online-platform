@@ -101,7 +101,7 @@ def test_docker_compose_declares_service_ports_volumes_and_environment():
     text = compose.read_text(encoding="utf-8")
 
     assert "mpc-online" in text
-    assert "8000:8000" in text
+    assert "${MPC_ONLINE_PORT:-8000}:8000" in text
     assert "./data:/app/data" in text
     assert "./outputs:/app/outputs" in text
     assert "./scenarios:/app/scenarios" in text

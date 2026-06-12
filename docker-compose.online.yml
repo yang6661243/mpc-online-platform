@@ -3,11 +3,11 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: mpc-online-platform:latest
-    container_name: mpc-online-platform
+    image: ${MPC_ONLINE_LOCAL_IMAGE:-mpc-online-platform:latest}
+    container_name: ${MPC_ONLINE_CONTAINER_NAME:-mpc-online-platform}
     restart: unless-stopped
     ports:
-      - "8000:8000"
+      - "${MPC_ONLINE_PORT:-8000}:8000"
     environment:
       MPC_DATABASE_URL: ${MPC_DATABASE_URL:-sqlite:////app/data/mpc_online.db}
       MPC_INPUT_SIGNATURE_SECRET: ${MPC_INPUT_SIGNATURE_SECRET:-}
