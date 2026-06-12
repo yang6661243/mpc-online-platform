@@ -1,0 +1,38 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+.venv/
+.venv*/
+venv/
+env/
+
+.env
+.DS_Store
+
+# 线上运行数据、模型输出和日志不要提交到 Git。
+data/
+outputs/
+logs/
+tmp/
+temp/
+
+# 工厂原始数据、天气数据、节假日 Excel 通常包含客户或项目数据。
+# 上线时通过服务器挂载目录提供，不随源码仓库或镜像发布。
+scenarios/*.xlsx
+scenarios/*.xls
+scenarios/*.csv
+scenarios/*.tsv
+
+.codex/
+.idea/
+.vscode/
+
+*.log

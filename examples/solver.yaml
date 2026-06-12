@@ -1,0 +1,146 @@
+# ============================================================
+# 求解器配置
+# 用法：
+#   python -m microgrid.solver --config examples/solver.yaml --profile example_factory_dec2022
+# ============================================================
+
+active_profile: example_factory_dec2022 # 当前默认启用的配置档案名称；命令行 --profile 可覆盖
+
+profiles: # 配置档案集合；每个子项是一套可独立运行的参数
+  example_factory_dec2022: # 配置档案名称；运行时可用 --profile 指定
+    scenario: # 场景输入数据配置
+      data_file: scenarios/example_factory_mpc_dec2022.xlsx # 场景 Excel 数据文件路径
+      sheets: # 各类数据对应的 Excel 工作表名称
+        load: load_dec # 负荷数据所在工作表
+        pv_wind: pv_dec # 光伏/风电数据所在工作表
+        price: price # 电价数据所在工作表
+    battery: # 储能电池参数
+      capacity_kwh: 783 # 电池额定容量，单位 kWh
+      charge_max_kw: 375 # 最大充电功率，单位 kW
+      discharge_max_kw: 375 # 最大放电功率，单位 kW
+      soc_init: 0.5 # 初始荷电状态，0-1 表示 0%-100%
+      soc_min: 0.1 # SOC 下限，防止过度放电
+      soc_max: 0.9 # SOC 上限，防止过度充电
+      charge_eff: 0.95 # 充电效率
+      discharge_eff: 0.95 # 放电效率
+    device: # 负荷、光伏、风电等设备参数
+      load_base_kw: 630 # 负荷倍率基准；当输入为比例值时换算成 kW
+      pv_capacity_kw: 0 # 光伏装机容量，单位 kW
+      pv_efficiency: 0 # 光伏出力折减/效率系数
+      wind_capacity_kw: 0 # 风电装机容量，单位 kW；0 表示未接入风电
+      wind_efficiency: 0 # 风电出力折减/效率系数
+    grid: # 电网并网与容量限制
+      anti_backflow: true # 是否防逆流；true 表示禁止向电网反送电
+      import_max_kw: 5000 # 最大购电功率上限，单位 kW
+      export_max_kw: 0 # 最大售电/上网功率上限，单位 kW
+      transformer_capacity_kw: 5000 # 变压器容量或需量容量上限，单位 kW/kVA
+    cost: # 成本与电费参数
+      c_deg: 0.05 # 电池充放电折旧/损耗成本，单位 元/kWh
+      demand_rate: 39.0 # 需量电费单价，单位 元/kW/月
+      capacity_rate: 0 # 容量电费单价，单位 元/kVA/月；0 表示不计
+      billing_days: 31 # 计费周期天数
+    solver: # 确定性优化求解器参数
+      days: 31 # 仿真或优化的天数
+      use_milp: true # 是否使用混合整数线性规划；true 会考虑互斥充放电等整数约束
+      terminal_constraint: false # 是否启用末端 SOC 约束
+    vpp: # 虚拟电厂需求响应参数
+      enabled: false # 是否启用该功能模块
+      charge_price: 0.2 # VPP 响应充电/补贴价格参数，单位 元/kWh
+      start_hour: 11 # 响应窗口开始小时，24小时制
+      end_hour: 13 # 响应窗口结束小时，24小时制
+      baseline_days: 5 # 计算需求响应基线使用的历史天数
+      steps_per_day: 96 # 每天时间步数；15分钟粒度为 96
+      response_cap_kw: null # 需求响应功率上限，单位 kW；null 表示不额外限制
+    output: outputs/example_factory_solver_dec2022.xlsx # 结果输出 Excel 文件路径
+
+  hehong: # 配置档案名称；运行时可用 --profile 指定
+    scenario: # 场景输入数据配置
+      data_file: scenarios/hehonghuajin.xlsx # 场景 Excel 数据文件路径
+      sheets: # 各类数据对应的 Excel 工作表名称
+        load: load_apr # 负荷数据所在工作表
+        pv_wind: pv_apr # 光伏/风电数据所在工作表
+        price: price # 电价数据所在工作表
+    battery: # 储能电池参数
+      capacity_kwh: 783 # 电池额定容量，单位 kWh
+      charge_max_kw: 375 # 最大充电功率，单位 kW
+      discharge_max_kw: 375 # 最大放电功率，单位 kW
+      soc_init: 0.5 # 初始荷电状态，0-1 表示 0%-100%
+      soc_min: 0.1 # SOC 下限，防止过度放电
+      soc_max: 0.9 # SOC 上限，防止过度充电
+      charge_eff: 0.95 # 充电效率
+      discharge_eff: 0.95 # 放电效率
+    device: # 负荷、光伏、风电等设备参数
+      load_base_kw: 1000 # 负荷倍率基准；当输入为比例值时换算成 kW
+      pv_capacity_kw: 350 # 光伏装机容量，单位 kW
+      pv_efficiency: 0.95 # 光伏出力折减/效率系数
+      wind_capacity_kw: 0 # 风电装机容量，单位 kW；0 表示未接入风电
+      wind_efficiency: 0 # 风电出力折减/效率系数
+    grid: # 电网并网与容量限制
+      anti_backflow: true # 是否防逆流；true 表示禁止向电网反送电
+      import_max_kw: 5000 # 最大购电功率上限，单位 kW
+      export_max_kw: 0 # 最大售电/上网功率上限，单位 kW
+      transformer_capacity_kw: 5000 # 变压器容量或需量容量上限，单位 kW/kVA
+    cost: # 成本与电费参数
+      c_deg: 0.05 # 电池充放电折旧/损耗成本，单位 元/kWh
+      demand_rate: 39.0 # 需量电费单价，单位 元/kW/月
+      capacity_rate: 0 # 容量电费单价，单位 元/kVA/月；0 表示不计
+      billing_days: 30 # 计费周期天数
+    solver: # 确定性优化求解器参数
+      days: 30 # 仿真或优化的天数
+      use_milp: true # 是否使用混合整数线性规划；true 会考虑互斥充放电等整数约束
+      terminal_constraint: false # 是否启用末端 SOC 约束
+    vpp: # 虚拟电厂需求响应参数
+      enabled: true # 是否启用该功能模块
+      charge_price: 0.2 # VPP 响应充电/补贴价格参数，单位 元/kWh
+      start_hour: 11 # 响应窗口开始小时，24小时制
+      end_hour: 13 # 响应窗口结束小时，24小时制
+      baseline_days: 5 # 计算需求响应基线使用的历史天数
+      steps_per_day: 96 # 每天时间步数；15分钟粒度为 96
+      response_cap_kw: null # 需求响应功率上限，单位 kW；null 表示不额外限制
+    output: outputs/和宏华进虚拟电厂求解器策略30天改1.xlsx # 结果输出 Excel 文件路径
+
+  aodelai: # 配置档案名称；运行时可用 --profile 指定
+    scenario: # 场景输入数据配置
+      data_file: scenarios/aodelai1_mpc_format.xlsx # 场景 Excel 数据文件路径
+      sheets: # 各类数据对应的 Excel 工作表名称
+        load: load_apr # 负荷数据所在工作表
+        pv_wind: pv_apr # 光伏/风电数据所在工作表
+        price: price # 电价数据所在工作表
+    battery: # 储能电池参数
+      capacity_kwh: 783 # 电池额定容量，单位 kWh
+      charge_max_kw: 375 # 最大充电功率，单位 kW
+      discharge_max_kw: 375 # 最大放电功率，单位 kW
+      soc_init: 0.5 # 初始荷电状态，0-1 表示 0%-100%
+      soc_min: 0.1 # SOC 下限，防止过度放电
+      soc_max: 0.9 # SOC 上限，防止过度充电
+      charge_eff: 0.95 # 充电效率
+      discharge_eff: 0.95 # 放电效率
+    device: # 负荷、光伏、风电等设备参数
+      load_base_kw: 1300 # 负荷倍率基准；当输入为比例值时换算成 kW
+      pv_capacity_kw: 1000 # 光伏装机容量，单位 kW
+      pv_efficiency: 1 # 光伏出力折减/效率系数
+      wind_capacity_kw: 0 # 风电装机容量，单位 kW；0 表示未接入风电
+      wind_efficiency: 0 # 风电出力折减/效率系数
+    grid: # 电网并网与容量限制
+      anti_backflow: true # 是否防逆流；true 表示禁止向电网反送电
+      import_max_kw: 5000 # 最大购电功率上限，单位 kW
+      export_max_kw: 0 # 最大售电/上网功率上限，单位 kW
+      transformer_capacity_kw: 5000 # 变压器容量或需量容量上限，单位 kW/kVA
+    cost: # 成本与电费参数
+      c_deg: 0.05 # 电池充放电折旧/损耗成本，单位 元/kWh
+      demand_rate: 39.0 # 需量电费单价，单位 元/kW/月
+      capacity_rate: 0 # 容量电费单价，单位 元/kVA/月；0 表示不计
+      billing_days: 30 # 计费周期天数
+    solver: # 确定性优化求解器参数
+      days: 30 # 仿真或优化的天数
+      use_milp: true # 是否使用混合整数线性规划；true 会考虑互斥充放电等整数约束
+      terminal_constraint: false # 是否启用末端 SOC 约束
+    vpp: # 虚拟电厂需求响应参数
+      enabled: false # 是否启用该功能模块
+      charge_price: 0.2 # VPP 响应充电/补贴价格参数，单位 元/kWh
+      start_hour: 11 # 响应窗口开始小时，24小时制
+      end_hour: 13 # 响应窗口结束小时，24小时制
+      baseline_days: 5 # 计算需求响应基线使用的历史天数
+      steps_per_day: 96 # 每天时间步数；15分钟粒度为 96
+      response_cap_kw: null # 需求响应功率上限，单位 kW；null 表示不额外限制
+    output: outputs/奥德来求解器策略.xlsx # 结果输出 Excel 文件路径

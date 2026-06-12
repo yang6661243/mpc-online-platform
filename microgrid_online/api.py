@@ -1,0 +1,336 @@
+from __future__ import annotations
+
+from collections.abc import Callable
+from pathlib import Path
+import os
+
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi.responses import HTMLResponse
+from pydantic import BaseModel, Field
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from microgrid_online.aggregation import aggregate_telemetry_15min
+from microgrid_online.dashboard_page import render_dashboard_page
+from microgrid_online.database import create_session_factory
+from microgrid_online.ingestion import ingest_battery_records, ingest_grid_records
+from microgrid_online.input_mapping import normalize_input_records
+from microgrid_online.models import MpcRun, StrategyComparison, StrategyCurvePoint, Telemetry15Min
+from microgrid_online.mpc_cli_runner import (
+    CommandRunner,
+    MicrogridMpcCliRunner,
+    MicrogridMpcCliRunnerConfig,
+)
+from microgrid_online.mpc_run import MpcRunner, MpcRunnerNotConfigured, run_online_mpc
+from microgrid_online.signature import verify_signature
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+
+class InputDataRequest(BaseModel):
+    request_id: str
+    plant_id: str
+    data_type: str
+    generated_at: str
+    records: list[dict] = Field(default_factory=list)
+    field_mapping: dict[str, str] = Field(default_factory=dict)
+    power_signs: dict[str, float] = Field(default_factory=dict)
+    soc_unit: str = "ratio"
+
+
+class RunMpcRequest(BaseModel):
+    request_id: str
+    plant_id: str
+    start_time: str
+    end_time: str
+    profile: str | None = None
+    load_base_kw: float | None = None
+    buy_price: float = 0.8
+    sell_price: float = 0.3
+    c_deg: float = 0.05
+    demand_rate: float = 30.0
+    billing_days: float = 30.0
+
+
+class AggregateRequest(BaseModel):
+    start_time: str
+    end_time: str
+    window_minutes: int = 15
+
+
+def _get_session_factory(app: FastAPI) -> Callable[[], Session]:
+    return app.state.session_factory
+
+
+def _comparison_payload(comparison: StrategyComparison | None) -> dict | None:
+    if comparison is None:
+        return None
+    return {
+        "run_id": comparison.run_id,
+        "actual_peak_kw": comparison.actual_peak_kw,
+        "mpc_peak_kw": comparison.mpc_peak_kw,
+        "peak_reduction_kw": comparison.peak_reduction_kw,
+        "peak_reduction_pct": comparison.peak_reduction_pct,
+        "actual_cost_yuan": comparison.actual_cost_yuan,
+        "mpc_cost_yuan": comparison.mpc_cost_yuan,
+        "cost_saving_yuan": comparison.cost_saving_yuan,
+        "cost_saving_pct": comparison.cost_saving_pct,
+    }
+
+
+def _series_payload(points: list[StrategyCurvePoint]) -> list[dict]:
+    return [
+        {
+            "time": point.time.isoformat(),
+            "actual_grid_power_kw": point.actual_grid_power_kw,
+            "actual_battery_power_kw": point.actual_battery_power_kw,
+            "actual_soc": point.actual_soc,
+            "load_minus_pv_kw": point.load_minus_pv_kw,
+            "mpc_grid_power_kw": point.mpc_grid_power_kw,
+            "mpc_battery_power_kw": point.mpc_battery_power_kw,
+            "mpc_soc": point.mpc_soc,
+            "buy_price": point.buy_price,
+            "sell_price": point.sell_price,
+        }
+        for point in points
+    ]
+
+
+def create_app(
+    session_factory: Callable[[], Session] | None = None,
+    *,
+    mpc_runner: MpcRunner | None = None,
+    enable_default_mpc_runner: bool = True,
+    mpc_command_runner: CommandRunner | None = None,
+    mpc_runner_project_root: str | Path | None = None,
+    mpc_runner_config: MicrogridMpcCliRunnerConfig | None = None,
+    run_output_dir: str | Path = "outputs/online_mpc_runs",
+    input_signature_secret: str | None = None,
+) -> FastAPI:
+    app = FastAPI(title="Online MPC Service")
+    app.state.session_factory = session_factory or create_session_factory()
+    app.state.input_signature_secret = input_signature_secret or os.getenv("MPC_INPUT_SIGNATURE_SECRET")
+    if mpc_runner is None and enable_default_mpc_runner:
+        app.state.mpc_runner = MicrogridMpcCliRunner(
+            mpc_runner_config
+            or MicrogridMpcCliRunnerConfig(
+                project_root=mpc_runner_project_root or PROJECT_ROOT,
+            ),
+            command_runner=mpc_command_runner,
+        )
+    else:
+        app.state.mpc_runner = mpc_runner
+    app.state.run_output_dir = Path(run_output_dir)
+
+    def get_session():
+        session = _get_session_factory(app)()
+        try:
+            yield session
+        finally:
+            close = getattr(session, "close", None)
+            if callable(close):
+                close()
+
+    @app.get("/", response_class=HTMLResponse)
+    def index(plant_id: str = "aodelai"):
+        return render_dashboard_page(default_plant_id=plant_id)
+
+    @app.get("/dashboard", response_class=HTMLResponse)
+    def dashboard_page(plant_id: str = "aodelai"):
+        return render_dashboard_page(default_plant_id=plant_id)
+
+    @app.get("/healthz")
+    def healthz():
+        return {"status": "ok", "service": "online-mpc"}
+
+    @app.post("/api/v1/mpc/input-data")
+    async def input_data(
+        payload: InputDataRequest,
+        request: Request,
+        session: Session = Depends(get_session),
+        x_timestamp: str | None = Header(default=None, alias="X-Timestamp"),
+        x_request_id: str | None = Header(default=None, alias="X-Request-Id"),
+        x_signature: str | None = Header(default=None, alias="X-Signature"),
+    ):
+        try:
+            try:
+                verify_signature(
+                    secret=app.state.input_signature_secret,
+                    body=await request.body(),
+                    timestamp=x_timestamp,
+                    request_id=x_request_id,
+                    signature=x_signature,
+                )
+            except ValueError as exc:
+                raise HTTPException(status_code=401, detail=str(exc)) from exc
+
+            records = normalize_input_records(
+                payload.data_type,
+                payload.records,
+                field_mapping=payload.field_mapping,
+                power_signs=payload.power_signs,
+                soc_unit=payload.soc_unit,
+            )
+            if payload.data_type == "grid_meter":
+                accepted = ingest_grid_records(
+                    session,
+                    plant_id=payload.plant_id,
+                    records=records,
+                )
+            elif payload.data_type == "battery":
+                accepted = ingest_battery_records(
+                    session,
+                    plant_id=payload.plant_id,
+                    records=records,
+                )
+            else:
+                raise HTTPException(status_code=400, detail=f"unsupported data_type: {payload.data_type}")
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        return {
+            "success": True,
+            "request_id": payload.request_id,
+            "plant_id": payload.plant_id,
+            "data_type": payload.data_type,
+            "accepted_count": accepted,
+            "duplicate": False,
+            "message": "accepted",
+        }
+
+    @app.post("/api/v1/mpc/run")
+    def run_mpc(payload: RunMpcRequest, session: Session = Depends(get_session)):
+        try:
+            result = run_online_mpc(
+                session,
+                request_id=payload.request_id,
+                plant_id=payload.plant_id,
+                start_time=payload.start_time,
+                end_time=payload.end_time,
+                profile=payload.profile,
+                runner=app.state.mpc_runner,
+                output_dir=app.state.run_output_dir,
+                load_base_kw=payload.load_base_kw,
+                buy_price=payload.buy_price,
+                sell_price=payload.sell_price,
+                c_deg=payload.c_deg,
+                demand_rate=payload.demand_rate,
+                billing_days=payload.billing_days,
+            )
+        except MpcRunnerNotConfigured as exc:
+            raise HTTPException(status_code=501, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+        return {
+            "success": True,
+            "run_id": result.run.run_id,
+            "plant_id": result.run.plant_id,
+            "status": result.run.status,
+            "scenario_path": str(result.scenario.output_path),
+            "comparison": _comparison_payload(result.comparison),
+            "message": "mpc run succeeded",
+        }
+
+    @app.post("/api/v1/plants/{plant_id}/aggregate")
+    def aggregate_plant_telemetry(
+        plant_id: str,
+        payload: AggregateRequest,
+        session: Session = Depends(get_session),
+    ):
+        try:
+            rows = aggregate_telemetry_15min(
+                session,
+                plant_id=plant_id,
+                start_time=payload.start_time,
+                end_time=payload.end_time,
+                window_minutes=payload.window_minutes,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        quality_counts: dict[str, int] = {}
+        for row in rows:
+            quality_counts[row.quality_flag] = quality_counts.get(row.quality_flag, 0) + 1
+
+        return {
+            "success": True,
+            "plant_id": plant_id,
+            "window_count": len(rows),
+            "quality_counts": quality_counts,
+        }
+
+    @app.get("/api/v1/mpc/runs/{run_id}")
+    def mpc_run_result(run_id: str, session: Session = Depends(get_session)):
+        run = session.scalar(select(MpcRun).where(MpcRun.run_id == run_id))
+        if run is None:
+            raise HTTPException(status_code=404, detail="mpc run not found")
+
+        comparison = session.scalar(
+            select(StrategyComparison)
+            .where(StrategyComparison.run_id == run_id)
+            .order_by(StrategyComparison.created_at.desc())
+            .limit(1)
+        )
+        return {
+            "run_id": run.run_id,
+            "plant_id": run.plant_id,
+            "profile": run.profile,
+            "status": run.status,
+            "started_at": None if run.started_at is None else run.started_at.isoformat(),
+            "finished_at": None if run.finished_at is None else run.finished_at.isoformat(),
+            "input_start_time": None if run.input_start_time is None else run.input_start_time.isoformat(),
+            "input_end_time": None if run.input_end_time is None else run.input_end_time.isoformat(),
+            "scenario_path": run.scenario_path,
+            "error_message": run.error_message,
+            "comparison": _comparison_payload(comparison),
+        }
+
+    @app.get("/api/v1/plants/{plant_id}/dashboard")
+    def dashboard(plant_id: str, session: Session = Depends(get_session)):
+        latest = session.scalar(
+            select(Telemetry15Min)
+            .where(Telemetry15Min.plant_id == plant_id)
+            .order_by(Telemetry15Min.end_time.desc())
+            .limit(1)
+        )
+        if latest is None:
+            raise HTTPException(status_code=404, detail="no telemetry found")
+
+        comparison = session.scalar(
+            select(StrategyComparison)
+            .where(StrategyComparison.plant_id == plant_id)
+            .order_by(StrategyComparison.created_at.desc())
+            .limit(1)
+        )
+        curve_points = []
+        if comparison is not None:
+            curve_points = list(
+                session.scalars(
+                    select(StrategyCurvePoint)
+                    .where(StrategyCurvePoint.run_id == comparison.run_id)
+                    .order_by(StrategyCurvePoint.time)
+                )
+            )
+
+        return {
+            "plant_id": plant_id,
+            "current": {
+                "time": latest.end_time.isoformat(),
+                "grid_power_kw": latest.grid_power_kw_avg,
+                "battery_power_kw": latest.battery_power_kw_avg,
+                "load_minus_pv_kw": latest.load_minus_pv_kw_avg,
+                "soc": latest.soc_end,
+                "quality_flag": latest.quality_flag,
+            },
+            "comparison": _comparison_payload(comparison),
+            "series": _series_payload(curve_points),
+        }
+
+    return app
+
+
+app = create_app()

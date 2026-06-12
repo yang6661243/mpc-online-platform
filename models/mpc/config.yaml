@@ -1,0 +1,54 @@
+# MPC在线调度器 — 离线验证配置
+# 用法:
+#   完美预报测试: forecast.load = actual.load (同一个干净文件)
+#   鲁棒测试:     forecast.load = 干净文件, actual.load = 噪声文件
+#   python scripts/run_mpc_7day.py
+
+# ═══════════════════════════════════════════════════════
+# 调度参数
+# ═══════════════════════════════════════════════════════
+scheduler:
+  interval_minutes: 5       # 求解间隔 (分钟)
+  horizon_hours: 48         # 预测时域 (小时)
+  terminal_constraint: false  # false=不强制SOC终点归位, true=强制归位到初始值
+
+# ═══════════════════════════════════════════════════════
+# 实际场景 — 代表"真实世界", MILP最优解也读这套数据
+# ═══════════════════════════════════════════════════════
+actual:
+  pv_wind: "scenarios/风电、光电_示例.xlsx"        # 光伏辐照度 + 风速
+  load: "scenarios/真实负荷_VIC_对齐时间线.xlsx"     # 实际负荷
+  price: "scenarios/电价曲线_示例.csv"             # 购/售分时电价
+
+# ═══════════════════════════════════════════════════════
+# 预报数据 — MPC每步做48h预测时用的数据
+# 验证完美预报: 所有路径跟actual一样
+# 鲁棒测试: forecast.load用干净文件, actual.load用噪声文件
+# ═══════════════════════════════════════════════════════
+forecast:
+  pv_wind: "scenarios/风电、光电_示例.xlsx"        # 光伏/风速预报 (场景数据=完美预报)
+  load: "scenarios/真实负荷_VIC_对齐时间线.xlsx"     # 负荷预报 (干净文件=理想预测)
+  price: "scenarios/电价曲线_示例.csv"             # 分时电价 (已知, 无需预测)
+
+  # 负荷预测模式: file | lightgbm | naive
+  #   file     = 从文件读取未来真值 (完美预报)
+  #   lightgbm = LightGBM 递归多步预测 (需先运行 scripts/train_load_forecaster.py)
+  #   naive    = 昨天同刻 t-96 持续性预测
+  mode: file
+  model_path: "outputs/models/load_forecaster.joblib"
+
+# ═══════════════════════════════════════════════════════
+# 峰值守门 — 功率层第二层保护
+# ═══════════════════════════════════════════════════════
+peak_guard:
+  enabled: true               # 是否启用并网功率守门
+  target_peak_kw: 16.0        # 目标峰值上限 (kW)
+  deadband_kw: 0.5            # 死区 (kW), 低于此偏差不触发
+
+# ═══════════════════════════════════════════════════════
+# 需量费建模 — 动态最优峰值
+# ═══════════════════════════════════════════════════════
+demand_modeling:
+  optimization_billing_days: 30   # MPC 优化用月度边际价值
+  peak_scan_enabled: true         # 月初扫描最优峰值
+  default_peak_kw: 16             # 扫描失败时回退默认值
