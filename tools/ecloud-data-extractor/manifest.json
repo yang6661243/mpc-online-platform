@@ -1,0 +1,46 @@
+{
+  "manifest_version": 3,
+  "name": "eCloud数据自动采集",
+  "version": "1.0.0",
+  "description": "自动采集ecloud.hoenergypower.cn电池分析数据并保存为CSV",
+  "permissions": [
+    "storage",
+    "activeTab",
+    "scripting",
+    "downloads"
+  ],
+  "host_permissions": [
+    "https://ecloud.hoenergypower.cn/*",
+    "http://8.163.49.151/*",
+    "http://8.163.49.151:18000/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["https://ecloud.hoenergypower.cn/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["page-hook.js"],
+      "matches": ["https://ecloud.hoenergypower.cn/*"]
+    }
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>eCloud数据采集</title>
+  <style>
+    body {
+      width: 300px;
+      padding: 20px;
+      font-family: Arial, sans-serif;
+      background: #f5f5f5;
+    }
+
+    .header {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+
+    .header h1 {
+      font-size: 18px;
+      color: #043050;
+      margin: 0 0 5px 0;
+    }
+
+    .header p {
+      font-size: 12px;
+      color: #666;
+      margin: 0;
+    }
+
+    .status {
+      background: white;
+      padding: 15px;
+      border-radius: 8px;
+      margin-bottom: 15px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+
+    .status-item {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 10px;
+      font-size: 14px;
+    }
+
+    .status-item:last-child {
+      margin-bottom: 0;
+    }
+
+    .status-label {
+      color: #666;
+    }
+
+    .status-value {
+      font-weight: bold;
+    }
+
+    .status-value.running {
+      color: #28a745;
+    }
+
+    .status-value.stopped {
+      color: #dc3545;
+    }
+
+    .buttons {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    button {
+      padding: 12px;
+      border: none;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: bold;
+      cursor: pointer;
+      transition: all 0.3s ease;
+    }
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .btn-primary {
+      background: #043050;
+      color: white;
+    }
+
+    .btn-primary:hover:not(:disabled) {
+      background: #065a8e;
+    }
+
+    .btn-danger {
+      background: #dc3545;
+      color: white;
+    }
+
+    .btn-danger:hover:not(:disabled) {
+      background: #c82333;
+    }
+
+    .btn-secondary {
+      background: #6c757d;
+      color: white;
+    }
+
+    .btn-secondary:hover:not(:disabled) {
+      background: #5a6268;
+    }
+
+    .info {
+      margin-top: 15px;
+      padding: 10px;
+      background: #e7f3ff;
+      border-radius: 6px;
+      font-size: 12px;
+      color: #043050;
+      line-height: 1.5;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>eCloud数据采集</h1>
+    <p>自动采集电池分析数据</p>
+  </div>
+
+  <div class="status">
+    <div class="status-item">
+      <span class="status-label">采集状态:</span>
+      <span class="status-value" id="statusText">正在检查...</span>
+    </div>
+    <div class="status-item">
+      <span class="status-label">已采集:</span>
+      <span class="status-value" id="dataCount">0 条</span>
+    </div>
+    <div class="status-item">
+      <span class="status-label">CSV文件:</span>
+      <span class="status-value" id="fileStatus">未选择</span>
+    </div>
+    <div class="status-item">
+      <span class="status-label">MPC推送:</span>
+      <span class="status-value" id="mpcStatusText">未开始</span>
+    </div>
+    <div class="status-item">
+      <span class="status-label">MPC工厂:</span>
+      <span class="status-value" id="mpcPlantId">--</span>
+    </div>
+    <div class="status-item">
+      <span class="status-label">已推送:</span>
+      <span class="status-value" id="mpcPushedCount">0 条</span>
+    </div>
+    <div class="status-item">
+      <span class="status-label">最近成功:</span>
+      <span class="status-value" id="mpcLastSuccess">--</span>
+    </div>
+    <div class="status-item">
+      <span class="status-label">最近错误:</span>
+      <span class="status-value" id="mpcLastError">--</span>
+    </div>
+  </div>
+
+  <div class="buttons">
+    <button class="btn-primary" id="btnToggle">启动采集</button>
+    <button class="btn-secondary" id="btnDownload">下载数据</button>
+    <button class="btn-secondary" id="btnClear">清空数据</button>
+  </div>
+
+  <div class="info">
+    <strong>使用说明:</strong><br>
+    1. 打开目标网页<br>
+    2. 选择CSV文件（用于保存数据）<br>
+    3. 点击"启动采集"按钮<br>
+    4. 扩展将自动采集并保存数据
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
