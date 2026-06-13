@@ -101,7 +101,10 @@ def test_run_saves_strategy_curve_points_and_dashboard_returns_series(tmp_path: 
     assert points[0].mpc_soc == 0.58
 
     dashboard = client.get("/api/v1/plants/aodelai/dashboard").json()
+    assert dashboard["series"][0]["time"] == "2026-06-12T02:15:00"
+    assert dashboard["series"][0]["quality_flag"] == "ok"
     assert dashboard["series"][0]["actual_grid_power_kw"] == 400.0
     assert dashboard["series"][0]["mpc_grid_power_kw"] == 380.0
+    assert dashboard["series"][1]["time"] == "2026-06-12T02:30:00"
     assert dashboard["series"][1]["actual_battery_power_kw"] == -10.0
     assert dashboard["series"][1]["mpc_soc"] == 0.57

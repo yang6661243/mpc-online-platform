@@ -3,6 +3,8 @@ from fastapi.testclient import TestClient
 from microgrid_online.aggregation import aggregate_telemetry_15min
 from microgrid_online.api import create_app
 from microgrid_online.database import create_sqlite_memory_session
+from microgrid_online.models import Telemetry15Min
+from microgrid_online.time_utils import parse_timestamp
 
 
 def test_input_data_endpoint_accepts_grid_and_battery_records():
@@ -208,3 +210,55 @@ def test_aggregate_endpoint_builds_dashboard_telemetry_from_raw_records():
     assert dashboard["current"]["battery_power_kw"] == 25.0
     assert dashboard["current"]["load_minus_pv_kw"] == 435.0
     assert dashboard["current"]["soc"] == 0.58
+
+
+def test_dashboard_endpoint_filters_series_by_window_hours():
+    session = create_sqlite_memory_session()
+    client = TestClient(create_app(session_factory=lambda: session))
+    session.add_all(
+        [
+            Telemetry15Min(
+                plant_id="aodelai",
+                start_time=parse_timestamp("2026-06-12T00:00:00+08:00"),
+                end_time=parse_timestamp("2026-06-12T00:15:00+08:00"),
+                grid_power_kw_avg=100.0,
+                grid_power_kw_max=100.0,
+                battery_power_kw_avg=1.0,
+                load_minus_pv_kw_avg=101.0,
+                soc_start=0.5,
+                soc_end=0.5,
+                grid_sample_count=1,
+                battery_sample_count=1,
+                quality_flag="ok",
+            ),
+            Telemetry15Min(
+                plant_id="aodelai",
+                start_time=parse_timestamp("2026-06-13T00:00:00+08:00"),
+                end_time=parse_timestamp("2026-06-13T00:15:00+08:00"),
+                grid_power_kw_avg=200.0,
+                grid_power_kw_max=200.0,
+                battery_power_kw_avg=2.0,
+                load_minus_pv_kw_avg=202.0,
+                soc_start=0.6,
+                soc_end=0.6,
+                grid_sample_count=1,
+                battery_sample_count=1,
+                quality_flag="ok",
+            ),
+        ]
+    )
+    session.commit()
+
+    body = client.get("/api/v1/plants/aodelai/dashboard?window_hours=1").json()
+
+    assert [point["time"] for point in body["series"]] == ["2026-06-12T16:15:00"]
+    assert body["series"][0]["actual_grid_power_kw"] == 200.0
+
+
+def test_dashboard_endpoint_rejects_window_hours_outside_supported_range():
+    session = create_sqlite_memory_session()
+    client = TestClient(create_app(session_factory=lambda: session))
+
+    response = client.get("/api/v1/plants/aodelai/dashboard?window_hours=169")
+
+    assert response.status_code == 422
