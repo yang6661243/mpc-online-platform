@@ -40,6 +40,24 @@ def test_input_data_endpoint_accepts_grid_and_battery_records():
     assert battery_response.json()["accepted_count"] == 1
 
 
+def test_input_data_endpoint_allows_ecloud_extension_cors_preflight():
+    session = create_sqlite_memory_session()
+    client = TestClient(create_app(session_factory=lambda: session))
+
+    response = client.options(
+        "/api/v1/mpc/input-data",
+        headers={
+            "Origin": "chrome-extension://becnmfbeidffckhenedfiahikaagpgek",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "content-type",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "chrome-extension://becnmfbeidffckhenedfiahikaagpgek"
+    assert "POST" in response.headers["access-control-allow-methods"]
+
+
 def test_dashboard_endpoint_returns_latest_status_cards():
     session = create_sqlite_memory_session()
     client = TestClient(create_app(session_factory=lambda: session))

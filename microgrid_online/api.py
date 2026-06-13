@@ -5,6 +5,7 @@ from pathlib import Path
 import os
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -26,6 +27,11 @@ from microgrid_online.signature import verify_signature
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+DEFAULT_CORS_ORIGINS = [
+    "https://ecloud.hoenergypower.cn",
+    "chrome-extension://becnmfbeidffckhenedfiahikaagpgek",
+]
 
 
 class InputDataRequest(BaseModel):
@@ -57,6 +63,14 @@ class AggregateRequest(BaseModel):
     start_time: str
     end_time: str
     window_minutes: int = 15
+
+
+def _cors_origins_from_env() -> list[str]:
+    configured = os.getenv("ONLINE_MPC_CORS_ORIGINS")
+    if not configured:
+        return DEFAULT_CORS_ORIGINS
+    origins = [origin.strip() for origin in configured.split(",") if origin.strip()]
+    return origins or DEFAULT_CORS_ORIGINS
 
 
 def _get_session_factory(app: FastAPI) -> Callable[[], Session]:
@@ -109,6 +123,12 @@ def create_app(
     input_signature_secret: str | None = None,
 ) -> FastAPI:
     app = FastAPI(title="Online MPC Service")
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_cors_origins_from_env(),
+        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_headers=["*"],
+    )
     app.state.session_factory = session_factory or create_session_factory()
     app.state.input_signature_secret = input_signature_secret or os.getenv("MPC_INPUT_SIGNATURE_SECRET")
     if mpc_runner is None and enable_default_mpc_runner:
