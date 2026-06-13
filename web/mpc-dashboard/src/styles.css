@@ -5,6 +5,7 @@
   --line: #d9e2ec;
   --ink: #17233c;
   --muted: #607089;
+  --blue: #1f6fd1;
   --green: #17815f;
   --amber: #a85c12;
   --red: #b53933;
@@ -79,6 +80,11 @@ button {
   cursor: pointer;
 }
 
+button:hover {
+  border-color: var(--blue);
+  color: var(--blue);
+}
+
 .content {
   max-width: 1440px;
   margin: 0 auto;
@@ -118,7 +124,7 @@ button {
 
 .metric-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(160px, 1fr));
+  grid-template-columns: repeat(4, minmax(170px, 1fr));
   gap: 14px;
 }
 
@@ -142,6 +148,95 @@ button {
   line-height: 1.1;
 }
 
+.metric-card small {
+  display: block;
+  min-height: 16px;
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.panel-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.panel-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.panel h2 {
+  margin: 0;
+  font-size: 18px;
+  line-height: 1.25;
+}
+
+.panel p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.chart {
+  width: 100%;
+  height: 360px;
+}
+
+.empty {
+  min-height: 220px;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  background: #f8fbfd;
+  border: 1px dashed #cdd9e5;
+  border-radius: 6px;
+}
+
+.table-wrap {
+  overflow: auto;
+  border: 1px solid #e5ecf3;
+  border-radius: 6px;
+}
+
+table {
+  width: 100%;
+  min-width: 900px;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+th,
+td {
+  padding: 10px 12px;
+  border-bottom: 1px solid #edf2f7;
+  text-align: right;
+  white-space: nowrap;
+}
+
+th:first-child,
+td:first-child {
+  text-align: left;
+}
+
+th {
+  color: var(--muted);
+  background: #f7f9fc;
+  font-weight: 600;
+}
+
 @media (max-width: 900px) {
   .topbar {
     flex-direction: column;
@@ -154,6 +249,10 @@ button {
 
   .metric-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .panel-head {
+    flex-direction: column;
   }
 }
 

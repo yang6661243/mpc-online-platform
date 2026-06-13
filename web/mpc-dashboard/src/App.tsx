@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { fetchDashboard } from "./api";
-import { formatKw, formatSoc, shortTime } from "./format";
+import { BatteryChart } from "./components/BatteryChart";
+import { DetailTable } from "./components/DetailTable";
+import { MetricCard } from "./components/MetricCard";
+import { PowerChart } from "./components/PowerChart";
+import { StatusBar } from "./components/StatusBar";
+import { formatKw, formatPercent, formatSoc, formatYuan, shortTime } from "./format";
 import { dashboardStatus } from "./status";
 import type { DashboardResponse } from "./types";
 import "./styles.css";
@@ -37,6 +42,7 @@ export default function App() {
   }, [plantId, windowHours, refreshCount]);
 
   const status = useMemo(() => (data ? dashboardStatus(data) : null), [data]);
+  const comparison = data?.comparison;
 
   return (
     <main className="app-shell">
@@ -67,26 +73,52 @@ export default function App() {
       </header>
 
       <section className="content">
-        {loading && <div className="status pending">数据加载中</div>}
-        {error && <div className="status error">暂无实时数据：{error}</div>}
-        {status && <div className={`status ${status.tone}`}>{status.label}</div>}
+        {loading && <StatusBar label="数据加载中" tone="pending" />}
+        {error && <StatusBar label={`暂无实时数据：${error}`} tone="error" />}
+        {status && <StatusBar label={status.label} tone={status.tone} />}
 
         <section className="metric-grid">
-          <article className="metric-card">
-            <span>当前电网功率</span>
-            <strong>{formatKw(data?.current.grid_power_kw)}</strong>
+          <MetricCard label="当前电网功率" value={formatKw(data?.current.grid_power_kw)} sub="防逆流表聚合值" />
+          <MetricCard label="当前储能功率" value={formatKw(data?.current.battery_power_kw)} sub="储能计量表聚合值" />
+          <MetricCard label="当前 SOC" value={formatSoc(data?.current.soc)} sub="BMS 系统 SOC" />
+          <MetricCard label="数据质量" value={data?.current.quality_flag || "--"} sub="15分钟聚合窗口" />
+          <MetricCard label="工厂最大需量" value={formatKw(comparison?.actual_peak_kw)} sub="当前策略" />
+          <MetricCard label="MPC 最大需量" value={formatKw(comparison?.mpc_peak_kw)} sub="优化策略" />
+          <MetricCard
+            label="削峰量"
+            value={formatKw(comparison?.peak_reduction_kw)}
+            sub={formatPercent(comparison?.peak_reduction_pct)}
+          />
+          <MetricCard
+            label="预计节省"
+            value={formatYuan(comparison?.cost_saving_yuan)}
+            sub={formatPercent(comparison?.cost_saving_pct)}
+          />
+        </section>
+
+        <section className="panel-grid">
+          <article className="panel">
+            <div className="panel-head">
+              <h2>电网功率对比</h2>
+              <p>工厂当前策略与 MPC 策略的最大需量对比</p>
+            </div>
+            <PowerChart series={data?.series || []} />
           </article>
-          <article className="metric-card">
-            <span>当前储能功率</span>
-            <strong>{formatKw(data?.current.battery_power_kw)}</strong>
+
+          <article className="panel">
+            <div className="panel-head">
+              <h2>储能功率与 SOC</h2>
+              <p>观察储能动作是否连续、SOC 是否在安全范围内</p>
+            </div>
+            <BatteryChart series={data?.series || []} />
           </article>
-          <article className="metric-card">
-            <span>当前 SOC</span>
-            <strong>{formatSoc(data?.current.soc)}</strong>
-          </article>
-          <article className="metric-card">
-            <span>数据质量</span>
-            <strong>{data?.current.quality_flag || "--"}</strong>
+
+          <article className="panel">
+            <div className="panel-head">
+              <h2>15分钟策略明细</h2>
+              <p>实际值与 MPC 输出逐点对照</p>
+            </div>
+            <DetailTable series={data?.series || []} />
           </article>
         </section>
       </section>
