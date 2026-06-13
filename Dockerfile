@@ -1,4 +1,14 @@
 ARG PYTHON_BASE_IMAGE=python:3.12-slim
+ARG NODE_BASE_IMAGE=node:20-bookworm-slim
+
+FROM ${NODE_BASE_IMAGE} AS dashboard-build
+
+WORKDIR /app/web/mpc-dashboard
+COPY web/mpc-dashboard/package*.json ./
+RUN npm ci
+COPY web/mpc-dashboard/ ./
+RUN npm run build
+
 FROM ${PYTHON_BASE_IMAGE}
 
 ARG APT_MIRROR=
@@ -30,6 +40,7 @@ RUN if [ -n "${PIP_INDEX_URL}" ]; then \
     fi
 
 COPY . /app
+COPY --from=dashboard-build /app/web/mpc-dashboard/dist /app/web/mpc-dashboard/dist
 
 RUN mkdir -p /app/data /app/outputs /app/scenarios
 

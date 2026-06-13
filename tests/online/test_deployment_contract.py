@@ -42,6 +42,20 @@ def test_dockerfile_runs_online_mpc_service():
     assert "/healthz" in text
 
 
+def test_dockerfile_builds_react_dashboard_assets():
+    dockerfile = ROOT / "Dockerfile"
+
+    text = dockerfile.read_text(encoding="utf-8")
+
+    assert "ARG NODE_BASE_IMAGE=node:20-bookworm-slim" in text
+    assert "FROM ${NODE_BASE_IMAGE} AS dashboard-build" in text
+    assert "WORKDIR /app/web/mpc-dashboard" in text
+    assert "COPY web/mpc-dashboard/package*.json ./" in text
+    assert "RUN npm ci" in text
+    assert "RUN npm run build" in text
+    assert "COPY --from=dashboard-build /app/web/mpc-dashboard/dist /app/web/mpc-dashboard/dist" in text
+
+
 def test_dockerignore_excludes_runtime_outputs_and_caches():
     dockerignore = ROOT / ".dockerignore"
 
@@ -63,6 +77,8 @@ def test_dockerignore_excludes_runtime_outputs_and_caches():
     assert "scenarios/*.xlsx" in lines
     assert "scenarios/*.csv" in lines
     assert ".DS_Store" in lines
+    assert "web/mpc-dashboard/node_modules" in lines
+    assert "web/mpc-dashboard/dist" in lines
 
 
 def test_gitignore_excludes_runtime_outputs_secrets_and_factory_data():

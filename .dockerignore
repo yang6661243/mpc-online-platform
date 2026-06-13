@@ -34,3 +34,9 @@ scenarios/*.tsv
 .vscode/
 
 *.log
+
+web/mpc-dashboard/node_modules
+web/mpc-dashboard/dist
+web/mpc-dashboard/*.tsbuildinfo
+web/mpc-dashboard/vite.config.js
+web/mpc-dashboard/vite.config.d.ts
