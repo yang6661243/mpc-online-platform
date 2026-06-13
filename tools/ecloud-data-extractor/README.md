@@ -68,6 +68,18 @@ http://8.163.49.151:18000/healthz
 http://8.163.49.151:18000/dashboard?plant_id=ecloud_factory
 ```
 
+### 网络代理注意事项
+
+如果浏览器或扩展访问 MPC 服务时报 `Failed to fetch`、`ERR_EMPTY_RESPONSE`，但终端用 `NO_PROXY='*' curl http://8.163.49.151:18000/healthz` 可以返回 `{"status":"ok"}`，通常是本机系统代理拦截了 `8.163.49.151:18000`。
+
+处理方式是在本机网络代理例外中加入：
+
+```text
+8.163.49.151
+```
+
+当前 Mac 已在 Ethernet 和 Wi-Fi 的代理例外里加入该 IP。这个修改只影响本机浏览器访问 MPC 服务，不会修改服务器和 Docker 容器。
+
 如果只采集到电网功率，没有储能功率或SOC，MPC服务仍会保存电网数据，但15分钟聚合质量会标记缺少储能数据，完整MPC策略暂时不能计算。
 
 ## 安装步骤
