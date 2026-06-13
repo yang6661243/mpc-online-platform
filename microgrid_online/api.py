@@ -6,7 +6,8 @@ import os
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -28,6 +29,7 @@ from microgrid_online.signature import verify_signature
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_DASHBOARD_DIST_DIR = PROJECT_ROOT / "web" / "mpc-dashboard" / "dist"
 
 DEFAULT_CORS_ORIGINS = [
     "https://ecloud.hoenergypower.cn",
@@ -88,6 +90,7 @@ def create_app(
     mpc_runner_config: MicrogridMpcCliRunnerConfig | None = None,
     run_output_dir: str | Path = "outputs/online_mpc_runs",
     input_signature_secret: str | None = None,
+    dashboard_dist_dir: str | Path | None = None,
 ) -> FastAPI:
     app = FastAPI(title="Online MPC Service")
     app.add_middleware(
@@ -109,6 +112,10 @@ def create_app(
     else:
         app.state.mpc_runner = mpc_runner
     app.state.run_output_dir = Path(run_output_dir)
+    app.state.dashboard_dist_dir = Path(dashboard_dist_dir or DEFAULT_DASHBOARD_DIST_DIR)
+    dashboard_assets_dir = app.state.dashboard_dist_dir / "assets"
+    if dashboard_assets_dir.exists():
+        app.mount("/assets", StaticFiles(directory=dashboard_assets_dir), name="dashboard-assets")
 
     def get_session():
         session = _get_session_factory(app)()
@@ -119,13 +126,19 @@ def create_app(
             if callable(close):
                 close()
 
+    def dashboard_response(default_plant_id: str):
+        index_path = app.state.dashboard_dist_dir / "index.html"
+        if index_path.exists():
+            return FileResponse(index_path)
+        return HTMLResponse(render_dashboard_page(default_plant_id=default_plant_id))
+
     @app.get("/", response_class=HTMLResponse)
-    def index(plant_id: str = "aodelai"):
-        return render_dashboard_page(default_plant_id=plant_id)
+    def index(plant_id: str = "ecloud_factory"):
+        return dashboard_response(default_plant_id=plant_id)
 
     @app.get("/dashboard", response_class=HTMLResponse)
-    def dashboard_page(plant_id: str = "aodelai"):
-        return render_dashboard_page(default_plant_id=plant_id)
+    def dashboard_page(plant_id: str = "ecloud_factory"):
+        return dashboard_response(default_plant_id=plant_id)
 
     @app.get("/healthz")
     def healthz():

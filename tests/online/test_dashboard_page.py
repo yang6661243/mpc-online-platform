@@ -6,7 +6,7 @@ from microgrid_online.database import create_sqlite_memory_session
 
 def test_root_serves_customer_dashboard_page():
     session = create_sqlite_memory_session()
-    client = TestClient(create_app(session_factory=lambda: session))
+    client = TestClient(create_app(session_factory=lambda: session, dashboard_dist_dir="/not/present"))
 
     response = client.get("/")
 
@@ -19,7 +19,7 @@ def test_root_serves_customer_dashboard_page():
 
 def test_dashboard_route_serves_same_customer_page():
     session = create_sqlite_memory_session()
-    client = TestClient(create_app(session_factory=lambda: session))
+    client = TestClient(create_app(session_factory=lambda: session, dashboard_dist_dir="/not/present"))
 
     response = client.get("/dashboard?plant_id=aodelai")
 
