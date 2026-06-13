@@ -56,6 +56,12 @@ h1 {
   flex-wrap: wrap;
 }
 
+.refresh-meta {
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
 label {
   display: flex;
   align-items: center;

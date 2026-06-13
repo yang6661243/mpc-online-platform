@@ -106,6 +106,103 @@ def test_dashboard_endpoint_returns_latest_status_cards():
     assert body["comparison"] is None
 
 
+def test_data_health_endpoint_reports_mpc_ready_when_required_streams_are_fresh():
+    session = create_sqlite_memory_session()
+    client = TestClient(create_app(session_factory=lambda: session))
+    client.post(
+        "/api/v1/mpc/input-data",
+        json={
+            "request_id": "req_grid_health",
+            "plant_id": "aodelai",
+            "data_type": "grid_meter",
+            "generated_at": "2026-06-12T10:15:00+08:00",
+            "records": [
+                {"time": "2026-06-12T10:00:00+08:00", "grid_power_kw": 400.0},
+                {"time": "2026-06-12T10:05:00+08:00", "grid_power_kw": 420.0},
+            ],
+        },
+    )
+    client.post(
+        "/api/v1/mpc/input-data",
+        json={
+            "request_id": "req_battery_health",
+            "plant_id": "aodelai",
+            "data_type": "battery",
+            "generated_at": "2026-06-12T10:15:00+08:00",
+            "records": [
+                {"time": "2026-06-12T10:00:00+08:00", "battery_power_kw": 20.0, "soc": 0.60},
+                {"time": "2026-06-12T10:05:00+08:00", "battery_power_kw": 30.0, "soc": 0.58},
+            ],
+        },
+    )
+    aggregate_telemetry_15min(
+        session,
+        plant_id="aodelai",
+        start_time="2026-06-12T10:00:00+08:00",
+        end_time="2026-06-12T10:15:00+08:00",
+    )
+
+    response = client.get(
+        "/api/v1/plants/aodelai/data-health",
+        params={
+            "reference_time": "2026-06-12T10:15:00+08:00",
+            "max_raw_delay_minutes": 20,
+            "max_telemetry_delay_minutes": 20,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["plant_id"] == "aodelai"
+    assert body["ready_for_mpc"] is True
+    assert body["issues"] == []
+    assert body["latest_raw"]["grid_meter"]["time"] == "2026-06-12T02:05:00"
+    assert body["latest_raw"]["grid_meter"]["grid_power_kw"] == 420.0
+    assert body["latest_raw"]["battery"]["time"] == "2026-06-12T02:05:00"
+    assert body["latest_raw"]["battery"]["battery_power_kw"] == 30.0
+    assert body["latest_raw"]["battery"]["soc"] == 0.58
+    assert body["latest_telemetry"]["end_time"] == "2026-06-12T02:15:00"
+    assert body["latest_telemetry"]["quality_flag"] == "ok"
+    assert body["latest_telemetry"]["load_minus_pv_kw_avg"] == 435.0
+
+
+def test_data_health_endpoint_reports_missing_battery_as_not_ready():
+    session = create_sqlite_memory_session()
+    client = TestClient(create_app(session_factory=lambda: session))
+    client.post(
+        "/api/v1/mpc/input-data",
+        json={
+            "request_id": "req_grid_health_missing_battery",
+            "plant_id": "aodelai",
+            "data_type": "grid_meter",
+            "generated_at": "2026-06-12T10:15:00+08:00",
+            "records": [
+                {"time": "2026-06-12T10:00:00+08:00", "grid_power_kw": 400.0},
+            ],
+        },
+    )
+    aggregate_telemetry_15min(
+        session,
+        plant_id="aodelai",
+        start_time="2026-06-12T10:00:00+08:00",
+        end_time="2026-06-12T10:15:00+08:00",
+    )
+
+    response = client.get(
+        "/api/v1/plants/aodelai/data-health",
+        params={"reference_time": "2026-06-12T10:15:00+08:00"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ready_for_mpc"] is False
+    assert "missing_battery_raw" in body["issues"]
+    assert "latest_telemetry_quality_missing_battery" in body["issues"]
+    assert body["latest_raw"]["grid_meter"]["grid_power_kw"] == 400.0
+    assert body["latest_raw"]["battery"] is None
+    assert body["latest_telemetry"]["quality_flag"] == "missing_battery"
+
+
 def test_input_data_endpoint_accepts_field_mapping_and_soc_percent():
     session = create_sqlite_memory_session()
     client = TestClient(create_app(session_factory=lambda: session))

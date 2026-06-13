@@ -5,12 +5,14 @@ import { DetailTable } from "./components/DetailTable";
 import { MetricCard } from "./components/MetricCard";
 import { PowerChart } from "./components/PowerChart";
 import { StatusBar } from "./components/StatusBar";
-import { formatKw, formatPercent, formatSoc, formatYuan, shortTime } from "./format";
+import { formatKw, formatPercent, formatSoc, formatYuan } from "./format";
 import { dashboardStatus } from "./status";
+import { formatChinaTime, formatDataDelay } from "./time";
 import type { DashboardResponse } from "./types";
 import "./styles.css";
 
 const DEFAULT_PLANT_ID = "ecloud_factory";
+const AUTO_REFRESH_MS = 60_000;
 
 function plantFromQuery(): string {
   const params = new URLSearchParams(window.location.search);
@@ -24,13 +26,17 @@ export default function App() {
   const [data, setData] = useState<DashboardResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [lastLoadedAt, setLastLoadedAt] = useState<Date | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
     setError(null);
     fetchDashboard(plantId, windowHours, controller.signal)
-      .then(setData)
+      .then((nextData) => {
+        setData(nextData);
+        setLastLoadedAt(new Date());
+      })
       .catch((err: Error) => {
         if (err.name !== "AbortError") {
           setData(null);
@@ -41,8 +47,16 @@ export default function App() {
     return () => controller.abort();
   }, [plantId, windowHours, refreshCount]);
 
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setRefreshCount((value) => value + 1);
+    }, AUTO_REFRESH_MS);
+    return () => window.clearInterval(timer);
+  }, []);
+
   const status = useMemo(() => (data ? dashboardStatus(data) : null), [data]);
   const comparison = data?.comparison;
+  const dataDelay = formatDataDelay(data?.current.time);
 
   return (
     <main className="app-shell">
@@ -51,7 +65,7 @@ export default function App() {
           <p className="eyebrow">虚拟电厂 MPC</p>
           <h1>MPC 策略对比看板</h1>
           <p className="subtitle">
-            {data ? `${data.plant_id} · 最新数据 ${shortTime(data.current.time)}` : "等待数据"}
+            {data ? `${data.plant_id} · 最新数据 ${formatChinaTime(data.current.time)}` : "等待数据"}
           </p>
         </div>
         <div className="toolbar">
@@ -69,6 +83,9 @@ export default function App() {
           <button type="button" onClick={() => setRefreshCount((value) => value + 1)}>
             刷新
           </button>
+          <span className="refresh-meta">
+            自动刷新 60秒{lastLoadedAt ? ` · 已刷新 ${formatChinaTime(lastLoadedAt.toISOString())}` : ""}
+          </span>
         </div>
       </header>
 
@@ -81,6 +98,7 @@ export default function App() {
           <MetricCard label="当前电网功率" value={formatKw(data?.current.grid_power_kw)} sub="防逆流表聚合值" />
           <MetricCard label="当前储能功率" value={formatKw(data?.current.battery_power_kw)} sub="储能计量表聚合值" />
           <MetricCard label="当前 SOC" value={formatSoc(data?.current.soc)} sub="BMS 系统 SOC" />
+          <MetricCard label="数据延迟" value={dataDelay} sub="按北京时间计算" />
           <MetricCard label="数据质量" value={data?.current.quality_flag || "--"} sub="15分钟聚合窗口" />
           <MetricCard label="工厂最大需量" value={formatKw(comparison?.actual_peak_kw)} sub="当前策略" />
           <MetricCard label="MPC 最大需量" value={formatKw(comparison?.mpc_peak_kw)} sub="优化策略" />

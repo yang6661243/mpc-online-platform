@@ -36,7 +36,7 @@ describe("chart option builders", () => {
     const option = buildPowerChartOption(sampleSeries);
 
     expect(option.legend).toEqual({ top: 4, data: ["工厂当前策略", "MPC 策略"] });
-    expect(option.xAxis).toMatchObject({ data: ["06-13 04:15", "06-13 04:30"] });
+    expect(option.xAxis).toMatchObject({ data: ["06-13 12:15", "06-13 12:30"] });
     expect(option.series).toMatchObject([
       { name: "工厂当前策略", data: [216.2, 220.4] },
       { name: "MPC 策略", data: [190.1, null] },

@@ -161,6 +161,7 @@ def test_docker_release_script_builds_and_optionally_pushes_registry_image():
     assert "--image" in text
     assert "--version" in text
     assert "--base-image" in text
+    assert "--node-base-image" in text
     assert "--apt-mirror" in text
     assert "--apt-security-mirror" in text
     assert "--pip-index-url" in text
@@ -169,6 +170,7 @@ def test_docker_release_script_builds_and_optionally_pushes_registry_image():
     assert "--platform" in text
     assert "--build-arg" in text
     assert "PYTHON_BASE_IMAGE" in text
+    assert "NODE_BASE_IMAGE" in text
     assert "APT_MIRROR" in text
     assert "APT_SECURITY_MIRROR" in text
     assert "PIP_INDEX_URL" in text

@@ -75,6 +75,7 @@ scripts/docker_release.sh \
   --image registry.cn-guangzhou.aliyuncs.com/<命名空间>/mpc-online \
   --version 20260612-001 \
   --base-image public.ecr.aws/docker/library/python:3.12-slim \
+  --node-base-image docker.m.daocloud.io/library/node:20-bookworm-slim \
   --apt-mirror https://mirrors.tuna.tsinghua.edu.cn/debian \
   --apt-security-mirror https://mirrors.tuna.tsinghua.edu.cn/debian-security \
   --pip-index-url https://pypi.tuna.tsinghua.edu.cn/simple \

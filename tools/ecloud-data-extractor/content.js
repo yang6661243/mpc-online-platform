@@ -51,6 +51,10 @@
   let lastStatus = "初始化中";
   let lastError = "";
   let lastCollectAt = "";
+  let lastReturnedCount = 0;
+  let lastNewRowCount = 0;
+  let lastLatestDataAt = "";
+  let lastPushStatus = "";
 
   function cloneJson(value, fallback = null) {
     try {
@@ -134,6 +138,34 @@
       Number(match[5]),
       Number(match[6] || 0),
     ).getTime();
+  }
+
+  function findLatestRowDate(rows) {
+    let latestMs = -Infinity;
+    let latestDate = "";
+    (rows || []).forEach((row) => {
+      const rowDate = String(row?.date || "");
+      const rowMs = parseChinaDateTimeMs(rowDate);
+      if (Number.isFinite(rowMs) && rowMs > latestMs) {
+        latestMs = rowMs;
+        latestDate = rowDate;
+      }
+    });
+    return latestDate;
+  }
+
+  function buildCollectionDiagnostic(rows, newRows) {
+    const returnedCount = Array.isArray(rows) ? rows.length : 0;
+    const newCount = Array.isArray(newRows) ? newRows.length : 0;
+    const latestDataAt = findLatestRowDate(rows);
+    return {
+      returnedCount,
+      newCount,
+      latestDataAt,
+      label: latestDataAt
+        ? `接口返回 ${returnedCount} 条，新增 ${newCount} 条，最新数据 ${latestDataAt}`
+        : `接口返回 ${returnedCount} 条，新增 ${newCount} 条，未返回目标数据`,
+    };
   }
 
   function metricMatches(metric, text) {
@@ -376,9 +408,10 @@
     return normalizePointDataShowListRows(body.data);
   }
 
-  function saveCollectedRows(rows) {
+  function saveCollectedRows(rows, diagnostic = null) {
     if (!rows || rows.length === 0) {
-      log("本轮没有新增数据");
+      lastPushStatus = "无新增数据，未推送MPC";
+      log(diagnostic?.latestDataAt ? `本轮没有新增数据，最新数据 ${diagnostic.latestDataAt}` : "本轮没有新增数据");
       return true;
     }
 
@@ -400,13 +433,22 @@
           if (isFirstCollect) isFirstCollect = false;
           if (response.mpcError) {
             setLastError(response.mpcError);
+            lastPushStatus = `MPC推送异常: ${response.mpcError}`;
             log(`后台已保存，MPC推送异常: ${response.mpcError}`);
           } else {
-            log(`数据已发送到后台保存: ${rows.length} 条`);
+            const mpcResult = response.mpcResult || {};
+            const acceptedCount = Number(mpcResult.acceptedCount || 0);
+            const payloadCount = Number(mpcResult.payloadCount || 0);
+            lastPushStatus = payloadCount > 0
+              ? `MPC推送成功: ${payloadCount} 个payload，接收 ${acceptedCount} 条`
+              : "后台已保存，MPC无可推送数据";
+            const latestText = diagnostic?.latestDataAt ? `，最新数据 ${diagnostic.latestDataAt}` : "";
+            log(`${lastPushStatus}${latestText}`);
           }
         } else {
           const error = response?.error || "未知错误";
           setLastError(error);
+          lastPushStatus = `数据发送失败: ${error}`;
           log(`数据发送失败: ${error}`);
         }
       },
@@ -425,8 +467,12 @@
       const rows = await queryPointDataShowList();
       const newRows = dedupeRows(rows);
       lastCollectAt = new Date().toISOString();
-      log(`接口返回 ${rows.length} 条目标数据，新增 ${newRows.length} 条`);
-      saveCollectedRows(newRows);
+      const diagnostic = buildCollectionDiagnostic(rows, newRows);
+      lastReturnedCount = diagnostic.returnedCount;
+      lastNewRowCount = diagnostic.newCount;
+      lastLatestDataAt = diagnostic.latestDataAt;
+      log(diagnostic.label);
+      saveCollectedRows(newRows, diagnostic);
       return true;
     } catch (error) {
       const message = error && error.message ? error.message : String(error);
@@ -503,8 +549,8 @@
       }
     } catch (error) {
       const message = error && error.message ? error.message : String(error);
-      setLastError(message);
-      log(`记录查询模板失败: ${message}`);
+      setLastError("");
+      log(`页面查询模板不完整，继续使用默认点位模板: ${message}`);
     }
   }
 
@@ -728,6 +774,10 @@
           lastStatus,
           lastError,
           lastCollectAt,
+          lastReturnedCount,
+          lastNewRowCount,
+          lastLatestDataAt,
+          lastPushStatus,
         });
         return false;
       }
@@ -748,6 +798,7 @@
   function exposeTestHooks() {
     window.__ecloudCollectorTestHooks = {
       buildDirectQueryPayload,
+      buildCollectionDiagnostic,
       buildObservedQueryPayload,
       collectData,
       dedupeRows,

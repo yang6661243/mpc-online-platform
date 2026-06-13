@@ -14,6 +14,6 @@ describe("metric formatting", () => {
   });
 
   it("formats ISO timestamps for compact display", () => {
-    expect(shortTime("2026-06-13T04:30:00")).toBe("06-13 04:30");
+    expect(shortTime("2026-06-13T16:30:00")).toBe("06-14 00:30");
   });
 });
