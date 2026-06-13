@@ -12,11 +12,12 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from microgrid_online.aggregation import aggregate_telemetry_15min
+from microgrid_online.dashboard_data import build_dashboard_payload, comparison_payload
 from microgrid_online.dashboard_page import render_dashboard_page
 from microgrid_online.database import create_session_factory
 from microgrid_online.ingestion import ingest_battery_records, ingest_grid_records
 from microgrid_online.input_mapping import normalize_input_records
-from microgrid_online.models import MpcRun, StrategyComparison, StrategyCurvePoint, Telemetry15Min
+from microgrid_online.models import MpcRun, StrategyComparison
 from microgrid_online.mpc_cli_runner import (
     CommandRunner,
     MicrogridMpcCliRunner,
@@ -75,40 +76,6 @@ def _cors_origins_from_env() -> list[str]:
 
 def _get_session_factory(app: FastAPI) -> Callable[[], Session]:
     return app.state.session_factory
-
-
-def _comparison_payload(comparison: StrategyComparison | None) -> dict | None:
-    if comparison is None:
-        return None
-    return {
-        "run_id": comparison.run_id,
-        "actual_peak_kw": comparison.actual_peak_kw,
-        "mpc_peak_kw": comparison.mpc_peak_kw,
-        "peak_reduction_kw": comparison.peak_reduction_kw,
-        "peak_reduction_pct": comparison.peak_reduction_pct,
-        "actual_cost_yuan": comparison.actual_cost_yuan,
-        "mpc_cost_yuan": comparison.mpc_cost_yuan,
-        "cost_saving_yuan": comparison.cost_saving_yuan,
-        "cost_saving_pct": comparison.cost_saving_pct,
-    }
-
-
-def _series_payload(points: list[StrategyCurvePoint]) -> list[dict]:
-    return [
-        {
-            "time": point.time.isoformat(),
-            "actual_grid_power_kw": point.actual_grid_power_kw,
-            "actual_battery_power_kw": point.actual_battery_power_kw,
-            "actual_soc": point.actual_soc,
-            "load_minus_pv_kw": point.load_minus_pv_kw,
-            "mpc_grid_power_kw": point.mpc_grid_power_kw,
-            "mpc_battery_power_kw": point.mpc_battery_power_kw,
-            "mpc_soc": point.mpc_soc,
-            "buy_price": point.buy_price,
-            "sell_price": point.sell_price,
-        }
-        for point in points
-    ]
 
 
 def create_app(
@@ -251,7 +218,7 @@ def create_app(
             "plant_id": result.run.plant_id,
             "status": result.run.status,
             "scenario_path": str(result.scenario.output_path),
-            "comparison": _comparison_payload(result.comparison),
+            "comparison": comparison_payload(result.comparison),
             "message": "mpc run succeeded",
         }
 
@@ -306,49 +273,16 @@ def create_app(
             "input_end_time": None if run.input_end_time is None else run.input_end_time.isoformat(),
             "scenario_path": run.scenario_path,
             "error_message": run.error_message,
-            "comparison": _comparison_payload(comparison),
+            "comparison": comparison_payload(comparison),
         }
 
     @app.get("/api/v1/plants/{plant_id}/dashboard")
-    def dashboard(plant_id: str, session: Session = Depends(get_session)):
-        latest = session.scalar(
-            select(Telemetry15Min)
-            .where(Telemetry15Min.plant_id == plant_id)
-            .order_by(Telemetry15Min.end_time.desc())
-            .limit(1)
-        )
-        if latest is None:
-            raise HTTPException(status_code=404, detail="no telemetry found")
-
-        comparison = session.scalar(
-            select(StrategyComparison)
-            .where(StrategyComparison.plant_id == plant_id)
-            .order_by(StrategyComparison.created_at.desc())
-            .limit(1)
-        )
-        curve_points = []
-        if comparison is not None:
-            curve_points = list(
-                session.scalars(
-                    select(StrategyCurvePoint)
-                    .where(StrategyCurvePoint.run_id == comparison.run_id)
-                    .order_by(StrategyCurvePoint.time)
-                )
-            )
-
-        return {
-            "plant_id": plant_id,
-            "current": {
-                "time": latest.end_time.isoformat(),
-                "grid_power_kw": latest.grid_power_kw_avg,
-                "battery_power_kw": latest.battery_power_kw_avg,
-                "load_minus_pv_kw": latest.load_minus_pv_kw_avg,
-                "soc": latest.soc_end,
-                "quality_flag": latest.quality_flag,
-            },
-            "comparison": _comparison_payload(comparison),
-            "series": _series_payload(curve_points),
-        }
+    def dashboard(
+        plant_id: str,
+        window_hours: int = 24,
+        session: Session = Depends(get_session),
+    ):
+        return build_dashboard_payload(session, plant_id=plant_id, window_hours=window_hours)
 
     return app
 
