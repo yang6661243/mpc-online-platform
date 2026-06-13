@@ -36,3 +36,10 @@ scenarios/*.tsv
 .vscode/
 
 *.log
+
+# 前端依赖和构建产物不提交；Docker/CI 根据 package-lock.json 重新构建。
+web/mpc-dashboard/node_modules/
+web/mpc-dashboard/dist/
+web/mpc-dashboard/*.tsbuildinfo
+web/mpc-dashboard/vite.config.js
+web/mpc-dashboard/vite.config.d.ts
