@@ -32,6 +32,8 @@ export interface DashboardChartOption {
   series: SeriesOption[];
 }
 
+export type StrategyKind = "factory" | "mpc";
+
 function socPercent(value: number | null): number | null {
   if (value === null) return null;
   return value <= 1 ? value * 100 : value;
@@ -167,6 +169,56 @@ export function buildBatteryChartOption(series: DashboardSeriesPoint[]): Dashboa
         smooth: true,
         yAxisIndex: 1,
         data: series.map((point) => socPercent(point.mpc_soc)),
+      },
+    ],
+  };
+}
+
+export function buildStrategyChartOption(series: DashboardSeriesPoint[], strategy: StrategyKind): DashboardChartOption {
+  const isFactory = strategy === "factory";
+  const colors = isFactory ? ["#ff8a5c", "#ffd166", "#7cc7ff"] : ["#38d8a8", "#39d9ff", "#b7f46a"];
+
+  return {
+    color: colors,
+    textStyle: darkChartText,
+    tooltip: { trigger: "axis" },
+    legend: { top: 4, data: ["电网功率", "储能功率", "SOC"] },
+    grid: { left: 52, right: 54, top: 48, bottom: 42 },
+    xAxis: {
+      type: "category",
+      data: series.map((point) => shortTime(point.time)),
+      boundaryGap: false,
+    },
+    yAxis: [
+      { type: "value", name: "kW", scale: true },
+      { type: "value", name: "%", min: 0, max: 100 },
+    ],
+    dataZoom: [
+      { type: "inside" },
+      { type: "slider", height: 18, bottom: 8 },
+    ],
+    series: [
+      {
+        name: "电网功率",
+        type: "line",
+        showSymbol: false,
+        smooth: true,
+        data: series.map((point) => (isFactory ? point.actual_grid_power_kw : point.mpc_grid_power_kw)),
+      },
+      {
+        name: "储能功率",
+        type: "line",
+        showSymbol: false,
+        smooth: true,
+        data: series.map((point) => (isFactory ? point.actual_battery_power_kw : point.mpc_battery_power_kw)),
+      },
+      {
+        name: "SOC",
+        type: "line",
+        showSymbol: false,
+        smooth: true,
+        yAxisIndex: 1,
+        data: series.map((point) => socPercent(isFactory ? point.actual_soc : point.mpc_soc)),
       },
     ],
   };

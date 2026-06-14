@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { buildBatteryChartOption, buildPowerChartOption, buildRevenueChartOption } from "./chartOptions";
+import {
+  buildBatteryChartOption,
+  buildPowerChartOption,
+  buildRevenueChartOption,
+  buildStrategyChartOption,
+} from "./chartOptions";
 import type { DashboardSeriesPoint } from "./types";
 
 const sampleSeries: DashboardSeriesPoint[] = [
@@ -64,6 +69,23 @@ describe("chart option builders", () => {
         name: "累计收益",
         data: [6.43, 6.43],
       },
+    ]);
+  });
+
+  it("builds separate strategy card charts for factory and MPC curves", () => {
+    const factoryOption = buildStrategyChartOption(sampleSeries, "factory");
+    const mpcOption = buildStrategyChartOption(sampleSeries, "mpc");
+
+    expect(factoryOption.legend.data).toEqual(["电网功率", "储能功率", "SOC"]);
+    expect(factoryOption.series).toMatchObject([
+      { name: "电网功率", data: [216.2, 220.4] },
+      { name: "储能功率", data: [-12.5, 0] },
+      { name: "SOC", yAxisIndex: 1, data: [50, 49] },
+    ]);
+    expect(mpcOption.series).toMatchObject([
+      { name: "电网功率", data: [190.1, null] },
+      { name: "储能功率", data: [13.2, null] },
+      { name: "SOC", yAxisIndex: 1, data: [54, null] },
     ]);
   });
 });

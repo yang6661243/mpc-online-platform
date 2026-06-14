@@ -1,11 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { fetchDashboard } from "./api";
-import { BatteryChart } from "./components/BatteryChart";
 import { DetailTable } from "./components/DetailTable";
 import { MetricCard } from "./components/MetricCard";
-import { PowerChart } from "./components/PowerChart";
 import { RevenueChart } from "./components/RevenueChart";
 import { StatusBar } from "./components/StatusBar";
+import { StrategyCard } from "./components/StrategyCard";
 import { formatKw, formatPercent, formatSoc, formatYuan } from "./format";
 import { dashboardStatus } from "./status";
 import { formatChinaTime, formatDataDelay } from "./time";
@@ -96,11 +95,11 @@ export default function App() {
   const dataDelay = formatDataDelay(data?.current.time);
   const latestTime = data ? formatChinaTime(data.current.time) : "--";
   const targetPeak = comparison?.mpc_peak_kw ?? comparison?.actual_peak_kw;
-  const targetSoc =
-    data?.series
+  const latestMpcPoint = data?.series
       .slice()
       .reverse()
-      .find((point) => point.mpc_soc !== null)?.mpc_soc ?? data?.current.soc;
+      .find((point) => point.mpc_soc !== null || point.mpc_battery_power_kw !== null);
+  const targetSoc = latestMpcPoint?.mpc_soc ?? data?.current.soc;
 
   return (
     <main className="app-shell">
@@ -195,16 +194,31 @@ export default function App() {
           </aside>
 
           <section className="center-stage">
-            <article className="panel power-panel">
-              <div className="panel-head">
-                <div>
-                  <span className="panel-kicker">运行数据</span>
-                  <h2>实时功率曲线</h2>
-                </div>
-                <p>工厂当前策略与 MPC 策略对比</p>
-              </div>
-              <PowerChart series={data?.series || []} />
-            </article>
+            <section className="strategy-compare-grid">
+              <StrategyCard
+                title="工厂策略"
+                subtitle="现场原策略执行曲线，来自真实工厂策略数据"
+                strategy="factory"
+                badge="REAL"
+                series={data?.series || []}
+                peakKw={comparison?.actual_peak_kw}
+                costYuan={comparison?.actual_cost_yuan}
+                soc={data?.current.soc}
+                batteryKw={data?.current.battery_power_kw}
+              />
+              <StrategyCard
+                title="MPC 策略"
+                subtitle="离线 MPC 回放结果，同时间段逐点对比"
+                strategy="mpc"
+                badge="MPC"
+                series={data?.series || []}
+                peakKw={comparison?.mpc_peak_kw}
+                costYuan={comparison?.mpc_cost_yuan}
+                soc={targetSoc}
+                batteryKw={latestMpcPoint?.mpc_battery_power_kw}
+                savingYuan={comparison?.cost_saving_yuan}
+              />
+            </section>
 
             <article className="panel revenue-panel">
               <div className="panel-head">
@@ -217,29 +231,16 @@ export default function App() {
               <RevenueChart series={data?.series || []} />
             </article>
 
-            <section className="bottom-grid">
-              <article className="panel">
-                <div className="panel-head">
-                  <div>
-                    <span className="panel-kicker">能量转换与输出</span>
-                    <h2>储能功率与 SOC</h2>
-                  </div>
-                  <p>正值放电，负值充电</p>
+            <article className="panel detail-panel">
+              <div className="panel-head">
+                <div>
+                  <span className="panel-kicker">历史数据</span>
+                  <h2>15分钟策略明细</h2>
                 </div>
-                <BatteryChart series={data?.series || []} />
-              </article>
-
-              <article className="panel detail-panel">
-                <div className="panel-head">
-                  <div>
-                    <span className="panel-kicker">历史数据</span>
-                    <h2>15分钟策略明细</h2>
-                  </div>
-                  <p>实际值与 MPC 输出逐点对照</p>
-                </div>
-                <DetailTable series={data?.series || []} />
-              </article>
-            </section>
+                <p>实际值与 MPC 输出逐点对照</p>
+              </div>
+              <DetailTable series={data?.series || []} />
+            </article>
           </section>
 
           <aside className="status-rail">
