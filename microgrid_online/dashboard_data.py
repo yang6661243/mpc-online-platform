@@ -6,7 +6,9 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from microgrid_online.comparison import compare_strategy_metrics, compute_actual_strategy_metrics
 from microgrid_online.models import StrategyComparison, StrategyCurvePoint, Telemetry15Min
+from microgrid_online.time_utils import parse_timestamp
 
 
 def comparison_payload(comparison: StrategyComparison | None) -> dict | None:
@@ -43,16 +45,27 @@ def _telemetry_window(
     plant_id: str,
     latest: Telemetry15Min,
     window_hours: int,
+    start_time: str | None = None,
+    end_time: str | None = None,
 ) -> list[Telemetry15Min]:
-    start_at = latest.end_time - timedelta(hours=window_hours)
+    explicit_start, explicit_end = _parse_time_range(start_time, end_time)
+    if explicit_start is None and explicit_end is None:
+        start_at = latest.end_time - timedelta(hours=window_hours)
+        end_at = latest.end_time
+    else:
+        start_at = explicit_start
+        end_at = explicit_end or latest.end_time
+
+    conditions = [
+        Telemetry15Min.plant_id == plant_id,
+        Telemetry15Min.end_time <= end_at,
+    ]
+    if start_at is not None:
+        conditions.append(Telemetry15Min.end_time > start_at)
     return list(
         session.scalars(
             select(Telemetry15Min)
-            .where(
-                Telemetry15Min.plant_id == plant_id,
-                Telemetry15Min.end_time > start_at,
-                Telemetry15Min.end_time <= latest.end_time,
-            )
+            .where(*conditions)
             .order_by(Telemetry15Min.end_time)
         )
     )
@@ -98,11 +111,31 @@ def _comparison_by_run_id(session: Session, *, plant_id: str, run_id: str) -> St
     return comparison
 
 
-def _curve_points_for_run(session: Session, *, run_id: str) -> list[StrategyCurvePoint]:
+def _parse_time_range(start_time: str | None, end_time: str | None):
+    start = parse_timestamp(start_time) if start_time else None
+    end = parse_timestamp(end_time) if end_time else None
+    if start is not None and end is not None and start >= end:
+        raise HTTPException(status_code=422, detail="start_time must be before end_time")
+    return start, end
+
+
+def _curve_points_for_run(
+    session: Session,
+    *,
+    run_id: str,
+    start_time: str | None = None,
+    end_time: str | None = None,
+) -> list[StrategyCurvePoint]:
+    start, end = _parse_time_range(start_time, end_time)
+    conditions = [StrategyCurvePoint.run_id == run_id]
+    if start is not None:
+        conditions.append(StrategyCurvePoint.time > start - timedelta(minutes=15))
+    if end is not None:
+        conditions.append(StrategyCurvePoint.time <= end - timedelta(minutes=15))
     points = list(
         session.scalars(
             select(StrategyCurvePoint)
-            .where(StrategyCurvePoint.run_id == run_id)
+            .where(*conditions)
             .order_by(StrategyCurvePoint.time)
         )
     )
@@ -154,10 +187,64 @@ def _run_series_payload(points: list[StrategyCurvePoint]) -> list[dict]:
     return series
 
 
-def _dashboard_payload_for_run(session: Session, *, plant_id: str, run_id: str) -> dict:
+def _comparison_payload_for_points(
+    *,
+    run_id: str,
+    points: list[StrategyCurvePoint],
+    c_deg: float = 0.05,
+    demand_rate: float = 39.0,
+    billing_days: float = 30.0,
+) -> dict:
+    actual = compute_actual_strategy_metrics(
+        grid_power_kw=[float(point.actual_grid_power_kw) for point in points],
+        battery_power_kw=[float(point.actual_battery_power_kw) for point in points],
+        soc=[float(point.actual_soc) for point in points],
+        buy_price=[float(point.buy_price) for point in points],
+        sell_price=[float(point.sell_price) for point in points],
+        c_deg=c_deg,
+        demand_rate=demand_rate,
+        billing_days=billing_days,
+    )
+    mpc = compute_actual_strategy_metrics(
+        grid_power_kw=[float(point.mpc_grid_power_kw) for point in points],
+        battery_power_kw=[float(point.mpc_battery_power_kw) for point in points],
+        soc=[float(point.mpc_soc) for point in points],
+        buy_price=[float(point.buy_price) for point in points],
+        sell_price=[float(point.sell_price) for point in points],
+        c_deg=c_deg,
+        demand_rate=demand_rate,
+        billing_days=billing_days,
+    )
+    comparison = compare_strategy_metrics(actual, mpc)
+    return {
+        "run_id": run_id,
+        "actual_peak_kw": actual.peak_kw,
+        "mpc_peak_kw": mpc.peak_kw,
+        "peak_reduction_kw": comparison.peak_reduction_kw,
+        "peak_reduction_pct": comparison.peak_reduction_pct,
+        "actual_cost_yuan": actual.total_cost_yuan,
+        "mpc_cost_yuan": mpc.total_cost_yuan,
+        "cost_saving_yuan": comparison.cost_saving_yuan,
+        "cost_saving_pct": comparison.cost_saving_pct,
+    }
+
+
+def _dashboard_payload_for_run(
+    session: Session,
+    *,
+    plant_id: str,
+    run_id: str,
+    start_time: str | None = None,
+    end_time: str | None = None,
+) -> dict:
     comparison = _comparison_by_run_id(session, plant_id=plant_id, run_id=run_id)
-    points = _curve_points_for_run(session, run_id=run_id)
+    points = _curve_points_for_run(session, run_id=run_id, start_time=start_time, end_time=end_time)
     latest = points[-1]
+    selected_comparison = (
+        comparison_payload(comparison)
+        if start_time is None and end_time is None
+        else _comparison_payload_for_points(run_id=run_id, points=points)
+    )
     return {
         "plant_id": plant_id,
         "current": {
@@ -168,7 +255,7 @@ def _dashboard_payload_for_run(session: Session, *, plant_id: str, run_id: str) 
             "soc": latest.actual_soc,
             "quality_flag": "ok",
         },
-        "comparison": comparison_payload(comparison),
+        "comparison": selected_comparison,
         "series": _run_series_payload(points),
     }
 
@@ -179,16 +266,33 @@ def build_dashboard_payload(
     plant_id: str,
     window_hours: int = 24,
     run_id: str | None = None,
+    start_time: str | None = None,
+    end_time: str | None = None,
 ) -> dict:
     if run_id:
-        return _dashboard_payload_for_run(session, plant_id=plant_id, run_id=run_id)
+        return _dashboard_payload_for_run(
+            session,
+            plant_id=plant_id,
+            run_id=run_id,
+            start_time=start_time,
+            end_time=end_time,
+        )
 
     if window_hours < 1 or window_hours > 168:
         raise HTTPException(status_code=422, detail="window_hours must be between 1 and 168")
 
     latest = _latest_telemetry(session, plant_id)
     comparison = _latest_comparison(session, plant_id)
-    rows = _telemetry_window(session, plant_id=plant_id, latest=latest, window_hours=window_hours)
+    rows = _telemetry_window(
+        session,
+        plant_id=plant_id,
+        latest=latest,
+        window_hours=window_hours,
+        start_time=start_time,
+        end_time=end_time,
+    )
+    if not rows:
+        raise HTTPException(status_code=404, detail="no telemetry found in selected time range")
     curve_by_time = _curve_points_by_time(session, comparison)
 
     return {

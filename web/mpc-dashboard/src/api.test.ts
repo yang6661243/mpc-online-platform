@@ -1,0 +1,17 @@
+import { describe, expect, test } from "vitest";
+import { buildDashboardUrl } from "./api";
+
+describe("dashboard API", () => {
+  test("builds a dashboard URL with run id and explicit time range", () => {
+    const url = buildDashboardUrl("hehong_huajin", {
+      windowHours: 24,
+      runId: "hehong_apr2026_real_mpc",
+      startTime: "2026-04-13T00:00",
+      endTime: "2026-04-14T00:00",
+    });
+
+    expect(url).toBe(
+      "/api/v1/plants/hehong_huajin/dashboard?window_hours=24&run_id=hehong_apr2026_real_mpc&start_time=2026-04-13T00%3A00&end_time=2026-04-14T00%3A00",
+    );
+  });
+});

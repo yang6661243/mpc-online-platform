@@ -117,6 +117,10 @@ input {
   width: 150px;
 }
 
+.time-input {
+  width: 178px;
+}
+
 button {
   cursor: pointer;
   color: var(--cyan);

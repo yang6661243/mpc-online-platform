@@ -163,3 +163,88 @@ def test_build_dashboard_payload_can_replay_a_specific_run_id():
     assert payload["current"]["battery_power_kw"] == 0.0
     assert payload["current"]["soc"] == 0.5
     assert [point["mpc_grid_power_kw"] for point in payload["series"]] == [148.56, 148.56]
+
+
+def test_build_dashboard_payload_filters_run_id_by_time_range_and_recomputes_comparison():
+    session = create_sqlite_memory_session()
+    _add_telemetry(session)
+    session.add(
+        StrategyComparison(
+            run_id="hehong_apr2026_real_mpc",
+            plant_id="ecloud_factory",
+            actual_peak_kw=300.0,
+            mpc_peak_kw=250.0,
+            peak_reduction_kw=50.0,
+            peak_reduction_pct=16.67,
+            actual_cost_yuan=1000.0,
+            mpc_cost_yuan=800.0,
+            cost_saving_yuan=200.0,
+            cost_saving_pct=20.0,
+        )
+    )
+    session.add_all(
+        [
+            StrategyCurvePoint(
+                run_id="hehong_apr2026_real_mpc",
+                plant_id="ecloud_factory",
+                time=parse_timestamp("2026-04-01T00:00:00+08:00"),
+                actual_grid_power_kw=100.0,
+                actual_battery_power_kw=0.0,
+                actual_soc=0.5,
+                load_minus_pv_kw=100.0,
+                mpc_grid_power_kw=90.0,
+                mpc_battery_power_kw=10.0,
+                mpc_soc=0.5,
+                buy_price=1.0,
+                sell_price=0.0,
+            ),
+            StrategyCurvePoint(
+                run_id="hehong_apr2026_real_mpc",
+                plant_id="ecloud_factory",
+                time=parse_timestamp("2026-04-01T00:15:00+08:00"),
+                actual_grid_power_kw=300.0,
+                actual_battery_power_kw=0.0,
+                actual_soc=0.5,
+                load_minus_pv_kw=300.0,
+                mpc_grid_power_kw=220.0,
+                mpc_battery_power_kw=80.0,
+                mpc_soc=0.6,
+                buy_price=1.0,
+                sell_price=0.0,
+            ),
+            StrategyCurvePoint(
+                run_id="hehong_apr2026_real_mpc",
+                plant_id="ecloud_factory",
+                time=parse_timestamp("2026-04-01T00:30:00+08:00"),
+                actual_grid_power_kw=120.0,
+                actual_battery_power_kw=0.0,
+                actual_soc=0.5,
+                load_minus_pv_kw=120.0,
+                mpc_grid_power_kw=110.0,
+                mpc_battery_power_kw=10.0,
+                mpc_soc=0.7,
+                buy_price=1.0,
+                sell_price=0.0,
+            ),
+        ]
+    )
+    session.commit()
+
+    payload = build_dashboard_payload(
+        session,
+        plant_id="ecloud_factory",
+        run_id="hehong_apr2026_real_mpc",
+        start_time="2026-03-31T16:15:00",
+        end_time="2026-03-31T16:30:00",
+    )
+
+    assert [point["time"] for point in payload["series"]] == ["2026-03-31T16:30:00"]
+    assert payload["current"]["grid_power_kw"] == 300.0
+    assert payload["comparison"]["actual_peak_kw"] == 300.0
+    assert payload["comparison"]["mpc_peak_kw"] == 220.0
+    assert payload["comparison"]["peak_reduction_kw"] == 80.0
+    assert payload["comparison"]["actual_cost_yuan"] == 300.0 * 0.25 + 300.0 * 39.0 * 0.25 / 24.0 / 30.0
+    assert (
+        payload["comparison"]["mpc_cost_yuan"]
+        == 220.0 * 0.25 + 220.0 * 39.0 * 0.25 / 24.0 / 30.0 + 80.0 * 0.25 * 0.05
+    )

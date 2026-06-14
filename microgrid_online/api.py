@@ -314,10 +314,19 @@ def create_app(
         plant_id: str,
         window_hours: int = 24,
         run_id: str | None = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
         session: Session = Depends(get_session),
     ):
         plant_id = normalize_plant_id(plant_id)
-        return build_dashboard_payload(session, plant_id=plant_id, window_hours=window_hours, run_id=run_id)
+        return build_dashboard_payload(
+            session,
+            plant_id=plant_id,
+            window_hours=window_hours,
+            run_id=run_id,
+            start_time=start_time,
+            end_time=end_time,
+        )
 
     @app.get("/api/v1/plants/{plant_id}/data-health")
     def data_health(

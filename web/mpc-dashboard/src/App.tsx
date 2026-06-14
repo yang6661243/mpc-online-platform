@@ -25,10 +25,31 @@ function runFromQuery(): string {
   return params.get("run_id") || "";
 }
 
+function queryValue(name: string): string {
+  const params = new URLSearchParams(window.location.search);
+  return params.get(name) || "";
+}
+
+function toApiTime(value: string): string | undefined {
+  if (!value) return undefined;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toISOString();
+}
+
+function toDateTimeLocalValue(value: string): string {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value.slice(0, 16);
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+  return local.toISOString().slice(0, 16);
+}
+
 export default function App() {
   const [plantId, setPlantId] = useState(plantFromQuery);
   const [runId, setRunId] = useState(runFromQuery);
   const [windowHours, setWindowHours] = useState(24);
+  const [rangeStart, setRangeStart] = useState(() => toDateTimeLocalValue(queryValue("start_time")));
+  const [rangeEnd, setRangeEnd] = useState(() => toDateTimeLocalValue(queryValue("end_time")));
   const [refreshCount, setRefreshCount] = useState(0);
   const [data, setData] = useState<DashboardResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -39,7 +60,16 @@ export default function App() {
     const controller = new AbortController();
     setLoading(true);
     setError(null);
-    fetchDashboard(plantId, windowHours, runId.trim() || undefined, controller.signal)
+    fetchDashboard(
+      plantId,
+      {
+        windowHours,
+        runId: runId.trim() || undefined,
+        startTime: toApiTime(rangeStart),
+        endTime: toApiTime(rangeEnd),
+      },
+      controller.signal,
+    )
       .then((nextData) => {
         setData(nextData);
         setLastLoadedAt(new Date());
@@ -52,7 +82,7 @@ export default function App() {
       })
       .finally(() => setLoading(false));
     return () => controller.abort();
-  }, [plantId, runId, windowHours, refreshCount]);
+  }, [plantId, runId, windowHours, rangeStart, rangeEnd, refreshCount]);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -94,8 +124,36 @@ export default function App() {
             <select value={windowHours} onChange={(event) => setWindowHours(Number(event.target.value))}>
               <option value={24}>最近24小时</option>
               <option value={48}>最近48小时</option>
+              <option value={168}>最近7天</option>
             </select>
           </label>
+          <label>
+            起始
+            <input
+              className="time-input"
+              type="datetime-local"
+              value={rangeStart}
+              onChange={(event) => setRangeStart(event.target.value)}
+            />
+          </label>
+          <label>
+            结束
+            <input
+              className="time-input"
+              type="datetime-local"
+              value={rangeEnd}
+              onChange={(event) => setRangeEnd(event.target.value)}
+            />
+          </label>
+          <button
+            type="button"
+            onClick={() => {
+              setRangeStart("");
+              setRangeEnd("");
+            }}
+          >
+            清除时间段
+          </button>
           <button type="button" onClick={() => setRefreshCount((value) => value + 1)}>
             刷新
           </button>
