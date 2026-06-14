@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { buildStrategyChartOption, type StrategyKind } from "../chartOptions";
 import { formatKw, formatSoc, formatYuan } from "../format";
 import { init } from "../echartsSetup";
+import { STRATEGY_CHART_HEIGHT_PX } from "../layout";
 import type { DashboardSeriesPoint } from "../types";
 
 interface StrategyCardProps {
@@ -78,7 +79,11 @@ export function StrategyCard({
         </div>
       </div>
 
-      {series.length ? <div ref={ref} className="chart strategy-chart" /> : <div className="empty">暂无策略曲线数据</div>}
+      {series.length ? (
+        <div ref={ref} className="chart strategy-chart" style={{ height: STRATEGY_CHART_HEIGHT_PX }} />
+      ) : (
+        <div className="empty">暂无策略曲线数据</div>
+      )}
     </article>
   );
 }

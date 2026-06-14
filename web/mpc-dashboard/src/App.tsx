@@ -7,6 +7,7 @@ import { RevenueChart } from "./components/RevenueChart";
 import { StatusBar } from "./components/StatusBar";
 import { StrategyCard } from "./components/StrategyCard";
 import { formatKw, formatPercent, formatSoc, formatYuan } from "./format";
+import { STRATEGY_GRID_TEMPLATE_COLUMNS } from "./layout";
 import { dashboardStatus } from "./status";
 import { formatChinaTime, formatDataDelay } from "./time";
 import type { DashboardResponse } from "./types";
@@ -195,7 +196,7 @@ export default function App() {
           </aside>
 
           <section className="center-stage">
-            <section className="strategy-compare-grid">
+            <section className="strategy-compare-grid" style={{ gridTemplateColumns: STRATEGY_GRID_TEMPLATE_COLUMNS }}>
               <StrategyCard
                 title="工厂策略"
                 subtitle="现场原策略执行曲线，来自真实工厂策略数据"
