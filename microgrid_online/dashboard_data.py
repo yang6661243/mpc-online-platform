@@ -83,6 +83,34 @@ def _curve_points_by_time(
     return {point.time: point for point in points}
 
 
+def _comparison_by_run_id(session: Session, *, plant_id: str, run_id: str) -> StrategyComparison:
+    comparison = session.scalar(
+        select(StrategyComparison)
+        .where(
+            StrategyComparison.plant_id == plant_id,
+            StrategyComparison.run_id == run_id,
+        )
+        .order_by(StrategyComparison.created_at.desc())
+        .limit(1)
+    )
+    if comparison is None:
+        raise HTTPException(status_code=404, detail="strategy comparison not found")
+    return comparison
+
+
+def _curve_points_for_run(session: Session, *, run_id: str) -> list[StrategyCurvePoint]:
+    points = list(
+        session.scalars(
+            select(StrategyCurvePoint)
+            .where(StrategyCurvePoint.run_id == run_id)
+            .order_by(StrategyCurvePoint.time)
+        )
+    )
+    if not points:
+        raise HTTPException(status_code=404, detail="strategy curve points not found")
+    return points
+
+
 def _series_payload(rows: list[Telemetry15Min], curve_by_time: dict) -> list[dict]:
     series = []
     for row in rows:
@@ -105,7 +133,56 @@ def _series_payload(rows: list[Telemetry15Min], curve_by_time: dict) -> list[dic
     return series
 
 
-def build_dashboard_payload(session: Session, *, plant_id: str, window_hours: int = 24) -> dict:
+def _run_series_payload(points: list[StrategyCurvePoint]) -> list[dict]:
+    series = []
+    for point in points:
+        series.append(
+            {
+                "time": (point.time + timedelta(minutes=15)).isoformat(),
+                "actual_grid_power_kw": point.actual_grid_power_kw,
+                "actual_battery_power_kw": point.actual_battery_power_kw,
+                "actual_soc": point.actual_soc,
+                "load_minus_pv_kw": point.load_minus_pv_kw,
+                "mpc_grid_power_kw": point.mpc_grid_power_kw,
+                "mpc_battery_power_kw": point.mpc_battery_power_kw,
+                "mpc_soc": point.mpc_soc,
+                "buy_price": point.buy_price,
+                "sell_price": point.sell_price,
+                "quality_flag": "ok",
+            }
+        )
+    return series
+
+
+def _dashboard_payload_for_run(session: Session, *, plant_id: str, run_id: str) -> dict:
+    comparison = _comparison_by_run_id(session, plant_id=plant_id, run_id=run_id)
+    points = _curve_points_for_run(session, run_id=run_id)
+    latest = points[-1]
+    return {
+        "plant_id": plant_id,
+        "current": {
+            "time": (latest.time + timedelta(minutes=15)).isoformat(),
+            "grid_power_kw": latest.actual_grid_power_kw,
+            "battery_power_kw": latest.actual_battery_power_kw,
+            "load_minus_pv_kw": latest.load_minus_pv_kw,
+            "soc": latest.actual_soc,
+            "quality_flag": "ok",
+        },
+        "comparison": comparison_payload(comparison),
+        "series": _run_series_payload(points),
+    }
+
+
+def build_dashboard_payload(
+    session: Session,
+    *,
+    plant_id: str,
+    window_hours: int = 24,
+    run_id: str | None = None,
+) -> dict:
+    if run_id:
+        return _dashboard_payload_for_run(session, plant_id=plant_id, run_id=run_id)
+
     if window_hours < 1 or window_hours > 168:
         raise HTTPException(status_code=422, detail="window_hours must be between 1 and 168")
 

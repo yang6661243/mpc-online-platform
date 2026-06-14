@@ -20,8 +20,14 @@ function plantFromQuery(): string {
   return params.get("plant_id") || DEFAULT_PLANT_ID;
 }
 
+function runFromQuery(): string {
+  const params = new URLSearchParams(window.location.search);
+  return params.get("run_id") || "";
+}
+
 export default function App() {
   const [plantId, setPlantId] = useState(plantFromQuery);
+  const [runId, setRunId] = useState(runFromQuery);
   const [windowHours, setWindowHours] = useState(24);
   const [refreshCount, setRefreshCount] = useState(0);
   const [data, setData] = useState<DashboardResponse | null>(null);
@@ -33,7 +39,7 @@ export default function App() {
     const controller = new AbortController();
     setLoading(true);
     setError(null);
-    fetchDashboard(plantId, windowHours, controller.signal)
+    fetchDashboard(plantId, windowHours, runId.trim() || undefined, controller.signal)
       .then((nextData) => {
         setData(nextData);
         setLastLoadedAt(new Date());
@@ -46,7 +52,7 @@ export default function App() {
       })
       .finally(() => setLoading(false));
     return () => controller.abort();
-  }, [plantId, windowHours, refreshCount]);
+  }, [plantId, runId, windowHours, refreshCount]);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -78,6 +84,10 @@ export default function App() {
           <label>
             工厂
             <input value={plantId} onChange={(event) => setPlantId(event.target.value)} />
+          </label>
+          <label>
+            运行ID
+            <input value={runId} onChange={(event) => setRunId(event.target.value)} placeholder="可选" />
           </label>
           <label>
             窗口

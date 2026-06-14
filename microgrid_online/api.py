@@ -313,10 +313,11 @@ def create_app(
     def dashboard(
         plant_id: str,
         window_hours: int = 24,
+        run_id: str | None = None,
         session: Session = Depends(get_session),
     ):
         plant_id = normalize_plant_id(plant_id)
-        return build_dashboard_payload(session, plant_id=plant_id, window_hours=window_hours)
+        return build_dashboard_payload(session, plant_id=plant_id, window_hours=window_hours, run_id=run_id)
 
     @app.get("/api/v1/plants/{plant_id}/data-health")
     def data_health(
