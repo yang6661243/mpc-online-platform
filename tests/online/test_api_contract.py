@@ -42,6 +42,62 @@ def test_input_data_endpoint_accepts_grid_and_battery_records():
     assert battery_response.json()["accepted_count"] == 1
 
 
+def test_ecloud_factory_alias_is_ingested_and_aggregated_as_hehong_huajin():
+    session = create_sqlite_memory_session()
+    client = TestClient(create_app(session_factory=lambda: session))
+
+    grid_response = client.post(
+        "/api/v1/mpc/input-data",
+        json={
+            "request_id": "req_grid_alias",
+            "plant_id": "ecloud_factory",
+            "data_type": "grid_meter",
+            "generated_at": "2026-06-14T17:20:00+08:00",
+            "records": [
+                {"time": "2026-06-14T17:00:00+08:00", "grid_power_kw": 88.0},
+            ],
+        },
+    )
+    battery_response = client.post(
+        "/api/v1/mpc/input-data",
+        json={
+            "request_id": "req_battery_alias",
+            "plant_id": "ecloud_factory",
+            "data_type": "battery",
+            "generated_at": "2026-06-14T17:20:00+08:00",
+            "soc_unit": "percent",
+            "records": [
+                {"time": "2026-06-14T17:00:00+08:00", "battery_power_kw": -12.0, "soc": 57.0},
+            ],
+        },
+    )
+
+    assert grid_response.status_code == 200
+    assert grid_response.json()["plant_id"] == "hehong_huajin"
+    assert battery_response.status_code == 200
+    assert battery_response.json()["plant_id"] == "hehong_huajin"
+
+    aggregate_response = client.post(
+        "/api/v1/plants/ecloud_factory/aggregate",
+        json={
+            "start_time": "2026-06-14T17:00:00+08:00",
+            "end_time": "2026-06-14T17:15:00+08:00",
+            "window_minutes": 15,
+        },
+    )
+
+    assert aggregate_response.status_code == 200
+    assert aggregate_response.json()["plant_id"] == "hehong_huajin"
+    dashboard = client.get("/api/v1/plants/hehong_huajin/dashboard").json()
+    assert dashboard["plant_id"] == "hehong_huajin"
+    assert dashboard["current"]["grid_power_kw"] == 88.0
+    assert dashboard["current"]["battery_power_kw"] == -12.0
+    assert dashboard["current"]["soc"] == 0.57
+    alias_dashboard = client.get("/api/v1/plants/ecloud_factory/dashboard").json()
+    assert alias_dashboard["plant_id"] == "hehong_huajin"
+    assert alias_dashboard["current"]["grid_power_kw"] == 88.0
+
+
 def test_input_data_endpoint_allows_ecloud_extension_cors_preflight():
     session = create_sqlite_memory_session()
     client = TestClient(create_app(session_factory=lambda: session))

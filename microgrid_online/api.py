@@ -37,6 +37,10 @@ DEFAULT_CORS_ORIGINS = [
     "chrome-extension://becnmfbeidffckhenedfiahikaagpgek",
 ]
 
+PLANT_ID_ALIASES = {
+    "ecloud_factory": "hehong_huajin",
+}
+
 
 class InputDataRequest(BaseModel):
     request_id: str
@@ -81,6 +85,10 @@ def _cors_origins_from_env() -> list[str]:
 
 def _get_session_factory(app: FastAPI) -> Callable[[], Session]:
     return app.state.session_factory
+
+
+def normalize_plant_id(plant_id: str) -> str:
+    return PLANT_ID_ALIASES.get(plant_id, plant_id)
 
 
 def create_app(
@@ -137,10 +145,12 @@ def create_app(
 
     @app.get("/", response_class=HTMLResponse)
     def index(plant_id: str = "hehong_huajin"):
+        plant_id = normalize_plant_id(plant_id)
         return dashboard_response(default_plant_id=plant_id)
 
     @app.get("/dashboard", response_class=HTMLResponse)
     def dashboard_page(plant_id: str = "hehong_huajin"):
+        plant_id = normalize_plant_id(plant_id)
         return dashboard_response(default_plant_id=plant_id)
 
     @app.get("/healthz")
@@ -175,16 +185,17 @@ def create_app(
                 power_signs=payload.power_signs,
                 soc_unit=payload.soc_unit,
             )
+            plant_id = normalize_plant_id(payload.plant_id)
             if payload.data_type == "grid_meter":
                 accepted = ingest_grid_records(
                     session,
-                    plant_id=payload.plant_id,
+                    plant_id=plant_id,
                     records=records,
                 )
             elif payload.data_type == "battery":
                 accepted = ingest_battery_records(
                     session,
-                    plant_id=payload.plant_id,
+                    plant_id=plant_id,
                     records=records,
                 )
             else:
@@ -195,7 +206,7 @@ def create_app(
         return {
             "success": True,
             "request_id": payload.request_id,
-            "plant_id": payload.plant_id,
+            "plant_id": plant_id,
             "data_type": payload.data_type,
             "accepted_count": accepted,
             "duplicate": False,
@@ -204,11 +215,12 @@ def create_app(
 
     @app.post("/api/v1/mpc/run")
     def run_mpc(payload: RunMpcRequest, session: Session = Depends(get_session)):
+        plant_id = normalize_plant_id(payload.plant_id)
         try:
             result = run_online_mpc(
                 session,
                 request_id=payload.request_id,
-                plant_id=payload.plant_id,
+                plant_id=plant_id,
                 start_time=payload.start_time,
                 end_time=payload.end_time,
                 profile=payload.profile,
@@ -246,6 +258,7 @@ def create_app(
         payload: AggregateRequest,
         session: Session = Depends(get_session),
     ):
+        plant_id = normalize_plant_id(plant_id)
         try:
             rows = aggregate_telemetry_15min(
                 session,
@@ -302,6 +315,7 @@ def create_app(
         window_hours: int = 24,
         session: Session = Depends(get_session),
     ):
+        plant_id = normalize_plant_id(plant_id)
         return build_dashboard_payload(session, plant_id=plant_id, window_hours=window_hours)
 
     @app.get("/api/v1/plants/{plant_id}/data-health")
@@ -312,6 +326,7 @@ def create_app(
         max_telemetry_delay_minutes: int = Query(default=30, gt=0),
         session: Session = Depends(get_session),
     ):
+        plant_id = normalize_plant_id(plant_id)
         try:
             return build_data_health_payload(
                 session,
