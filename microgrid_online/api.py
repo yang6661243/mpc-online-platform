@@ -136,11 +136,11 @@ def create_app(
         return HTMLResponse(render_dashboard_page(default_plant_id=default_plant_id))
 
     @app.get("/", response_class=HTMLResponse)
-    def index(plant_id: str = "ecloud_factory"):
+    def index(plant_id: str = "hehong_huajin"):
         return dashboard_response(default_plant_id=plant_id)
 
     @app.get("/dashboard", response_class=HTMLResponse)
-    def dashboard_page(plant_id: str = "ecloud_factory"):
+    def dashboard_page(plant_id: str = "hehong_huajin"):
         return dashboard_response(default_plant_id=plant_id)
 
     @app.get("/healthz")

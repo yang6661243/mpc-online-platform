@@ -15,6 +15,7 @@ def test_root_serves_customer_dashboard_page():
     assert 'id="dashboard-root"' in response.text
     assert "MPC 策略对比看板" in response.text
     assert "/api/v1/plants/" in response.text
+    assert "const DEFAULT_PLANT_ID = \"hehong_huajin\"" in response.text
 
 
 def test_dashboard_route_serves_same_customer_page():

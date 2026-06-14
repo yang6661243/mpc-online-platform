@@ -1,11 +1,16 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const {
+  DEFAULT_CONFIG,
   buildAggregateWindow,
   buildMpcIngestPayloads,
   classifyTableName,
   toChinaIsoTimestamp,
 } = require("./mpcBridge.js");
+
+test("defaults uploads to hehong huajin plant id", () => {
+  assert.equal(DEFAULT_CONFIG.plantId, "hehong_huajin");
+});
 
 test("converts eCloud grid table rows into a grid_meter payload", () => {
   const payloads = buildMpcIngestPayloads(

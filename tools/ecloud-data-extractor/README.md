@@ -23,14 +23,14 @@ http://8.163.49.151:18000
 默认工厂ID：
 
 ```text
-ecloud_factory
+hehong_huajin
 ```
 
 插件采集到表格数据后，会先保留原来的内存缓存和CSV下载能力，然后把可识别的表格行转换成MPC服务接口格式：
 
 ```text
 POST /api/v1/mpc/input-data
-POST /api/v1/plants/ecloud_factory/aggregate
+POST /api/v1/plants/hehong_huajin/aggregate
 ```
 
 ### 默认表名映射
@@ -65,7 +65,7 @@ http://8.163.49.151:18000/healthz
 客户展示页面：
 
 ```text
-http://8.163.49.151:18000/dashboard?plant_id=ecloud_factory
+http://8.163.49.151:18000/dashboard?plant_id=hehong_huajin
 ```
 
 ### 网络代理注意事项

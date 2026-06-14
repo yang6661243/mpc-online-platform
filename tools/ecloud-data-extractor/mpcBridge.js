@@ -4,7 +4,7 @@
   "use strict";
 
   const DEFAULT_CONFIG = {
-    plantId: "ecloud_factory",
+    plantId: "hehong_huajin",
     mpcBaseUrl: "http://8.163.49.151:18000",
     aggregateWindowMinutes: 15,
   };

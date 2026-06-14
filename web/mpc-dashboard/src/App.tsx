@@ -11,7 +11,7 @@ import { formatChinaTime, formatDataDelay } from "./time";
 import type { DashboardResponse } from "./types";
 import "./styles.css";
 
-const DEFAULT_PLANT_ID = "ecloud_factory";
+const DEFAULT_PLANT_ID = "hehong_huajin";
 const AUTO_REFRESH_MS = 60_000;
 
 function plantFromQuery(): string {
