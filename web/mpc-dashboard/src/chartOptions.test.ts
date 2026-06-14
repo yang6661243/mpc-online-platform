@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildBatteryChartOption, buildPowerChartOption } from "./chartOptions";
+import { buildBatteryChartOption, buildPowerChartOption, buildRevenueChartOption } from "./chartOptions";
 import type { DashboardSeriesPoint } from "./types";
 
 const sampleSeries: DashboardSeriesPoint[] = [
@@ -52,6 +52,18 @@ describe("chart option builders", () => {
       { name: "MPC 储能功率", data: [13.2, null] },
       { name: "实际 SOC", yAxisIndex: 1, data: [50, 49] },
       { name: "MPC SOC", yAxisIndex: 1, data: [54, null] },
+    ]);
+  });
+
+  it("builds a cumulative revenue chart from actual and MPC grid power", () => {
+    const option = buildRevenueChartOption(sampleSeries);
+
+    expect(option.legend).toEqual({ top: 4, data: ["累计收益"] });
+    expect(option.series).toMatchObject([
+      {
+        name: "累计收益",
+        data: [6.43, 6.43],
+      },
     ]);
   });
 });

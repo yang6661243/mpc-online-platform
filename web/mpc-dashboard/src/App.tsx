@@ -4,6 +4,7 @@ import { BatteryChart } from "./components/BatteryChart";
 import { DetailTable } from "./components/DetailTable";
 import { MetricCard } from "./components/MetricCard";
 import { PowerChart } from "./components/PowerChart";
+import { RevenueChart } from "./components/RevenueChart";
 import { StatusBar } from "./components/StatusBar";
 import { formatKw, formatPercent, formatSoc, formatYuan } from "./format";
 import { dashboardStatus } from "./status";
@@ -57,17 +58,22 @@ export default function App() {
   const status = useMemo(() => (data ? dashboardStatus(data) : null), [data]);
   const comparison = data?.comparison;
   const dataDelay = formatDataDelay(data?.current.time);
+  const latestTime = data ? formatChinaTime(data.current.time) : "--";
+  const targetPeak = comparison?.mpc_peak_kw ?? comparison?.actual_peak_kw;
+  const targetSoc =
+    data?.series
+      .slice()
+      .reverse()
+      .find((point) => point.mpc_soc !== null)?.mpc_soc ?? data?.current.soc;
 
   return (
     <main className="app-shell">
       <header className="topbar">
-        <div>
-          <p className="eyebrow">虚拟电厂 MPC</p>
-          <h1>MPC 策略对比看板</h1>
-          <p className="subtitle">
-            {data ? `${data.plant_id} · 最新数据 ${formatChinaTime(data.current.time)}` : "等待数据"}
-          </p>
+        <div className="topbar-time">
+          <span>当前数据</span>
+          <strong>{latestTime}</strong>
         </div>
+        <h1>和宏华进 MPC 实时演示系统</h1>
         <div className="toolbar">
           <label>
             工厂
@@ -84,7 +90,7 @@ export default function App() {
             刷新
           </button>
           <span className="refresh-meta">
-            自动刷新 60秒{lastLoadedAt ? ` · 已刷新 ${formatChinaTime(lastLoadedAt.toISOString())}` : ""}
+            自动刷新 60秒{lastLoadedAt ? ` · ${formatChinaTime(lastLoadedAt.toISOString())}` : ""}
           </span>
         </div>
       </header>
@@ -94,50 +100,102 @@ export default function App() {
         {error && <StatusBar label={`暂无实时数据：${error}`} tone="error" />}
         {status && <StatusBar label={status.label} tone={status.tone} />}
 
-        <section className="metric-grid">
-          <MetricCard label="当前电网功率" value={formatKw(data?.current.grid_power_kw)} sub="防逆流表聚合值" />
-          <MetricCard label="当前储能功率" value={formatKw(data?.current.battery_power_kw)} sub="储能计量表聚合值" />
-          <MetricCard label="当前 SOC" value={formatSoc(data?.current.soc)} sub="BMS 系统 SOC" />
-          <MetricCard label="数据延迟" value={dataDelay} sub="按北京时间计算" />
-          <MetricCard label="数据质量" value={data?.current.quality_flag || "--"} sub="15分钟聚合窗口" />
-          <MetricCard label="工厂最大需量" value={formatKw(comparison?.actual_peak_kw)} sub="当前策略" />
-          <MetricCard label="MPC 最大需量" value={formatKw(comparison?.mpc_peak_kw)} sub="优化策略" />
-          <MetricCard
-            label="削峰量"
-            value={formatKw(comparison?.peak_reduction_kw)}
-            sub={formatPercent(comparison?.peak_reduction_pct)}
-          />
-          <MetricCard
-            label="预计节省"
-            value={formatYuan(comparison?.cost_saving_yuan)}
-            sub={formatPercent(comparison?.cost_saving_pct)}
-          />
-        </section>
-
-        <section className="panel-grid">
-          <article className="panel">
-            <div className="panel-head">
-              <h2>电网功率对比</h2>
-              <p>工厂当前策略与 MPC 策略的最大需量对比</p>
+        <section className="dashboard-grid">
+          <aside className="stat-sidebar">
+            <div className="section-title">
+              <span />
+              <h2>统计数据</h2>
             </div>
-            <PowerChart series={data?.series || []} />
-          </article>
-
-          <article className="panel">
-            <div className="panel-head">
-              <h2>储能功率与 SOC</h2>
-              <p>观察储能动作是否连续、SOC 是否在安全范围内</p>
+            <div className="metric-grid">
+              <MetricCard label="当前电网功率" value={formatKw(data?.current.grid_power_kw)} sub="防逆流表聚合值" />
+              <MetricCard label="当前储能功率" value={formatKw(data?.current.battery_power_kw)} sub="储能计量表聚合值" />
+              <MetricCard label="当前 SOC" value={formatSoc(data?.current.soc)} sub="BMS 系统 SOC" />
+              <MetricCard label="数据延迟" value={dataDelay} sub="按北京时间计算" />
+              <MetricCard label="工厂最大需量" value={formatKw(comparison?.actual_peak_kw)} sub="当前策略" />
+              <MetricCard label="MPC 最大需量" value={formatKw(comparison?.mpc_peak_kw)} sub="优化策略" />
+              <MetricCard
+                label="削峰量"
+                value={formatKw(comparison?.peak_reduction_kw)}
+                sub={formatPercent(comparison?.peak_reduction_pct)}
+              />
+              <MetricCard
+                label="预计节省"
+                value={formatYuan(comparison?.cost_saving_yuan)}
+                sub={formatPercent(comparison?.cost_saving_pct)}
+              />
             </div>
-            <BatteryChart series={data?.series || []} />
-          </article>
+          </aside>
 
-          <article className="panel">
-            <div className="panel-head">
-              <h2>15分钟策略明细</h2>
-              <p>实际值与 MPC 输出逐点对照</p>
+          <section className="center-stage">
+            <article className="panel power-panel">
+              <div className="panel-head">
+                <div>
+                  <span className="panel-kicker">运行数据</span>
+                  <h2>实时功率曲线</h2>
+                </div>
+                <p>工厂当前策略与 MPC 策略对比</p>
+              </div>
+              <PowerChart series={data?.series || []} />
+            </article>
+
+            <article className="panel revenue-panel">
+              <div className="panel-head">
+                <div>
+                  <span className="panel-kicker">收益数据</span>
+                  <h2>实时收益曲线</h2>
+                </div>
+                <p>按 15 分钟功率差和购电价估算累计收益</p>
+              </div>
+              <RevenueChart series={data?.series || []} />
+            </article>
+
+            <section className="bottom-grid">
+              <article className="panel">
+                <div className="panel-head">
+                  <div>
+                    <span className="panel-kicker">能量转换与输出</span>
+                    <h2>储能功率与 SOC</h2>
+                  </div>
+                  <p>正值放电，负值充电</p>
+                </div>
+                <BatteryChart series={data?.series || []} />
+              </article>
+
+              <article className="panel detail-panel">
+                <div className="panel-head">
+                  <div>
+                    <span className="panel-kicker">历史数据</span>
+                    <h2>15分钟策略明细</h2>
+                  </div>
+                  <p>实际值与 MPC 输出逐点对照</p>
+                </div>
+                <DetailTable series={data?.series || []} />
+              </article>
+            </section>
+          </section>
+
+          <aside className="status-rail">
+            <div className="rail-card rail-highlight">
+              <span>MPC 状态</span>
+              <strong>{status?.label || "等待数据"}</strong>
             </div>
-            <DetailTable series={data?.series || []} />
-          </article>
+            <div className="rail-card">
+              <span>数据质量</span>
+              <strong>{data?.current.quality_flag || "--"}</strong>
+            </div>
+            <div className="rail-card">
+              <span>目标峰值</span>
+              <strong>{formatKw(targetPeak)}</strong>
+            </div>
+            <div className="rail-card">
+              <span>目标 SOC</span>
+              <strong>{formatSoc(targetSoc)}</strong>
+            </div>
+            <div className="rail-card">
+              <span>电站 ID</span>
+              <strong>{data?.plant_id || plantId}</strong>
+            </div>
+          </aside>
         </section>
       </section>
     </main>
