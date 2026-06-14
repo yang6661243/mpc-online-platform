@@ -34,6 +34,7 @@ class OnlineMpcRunInput:
     c_deg: float
     demand_rate: float
     billing_days: float
+    target_peak_kw: float | None = None
 
 
 @dataclass(frozen=True)
@@ -173,6 +174,7 @@ def run_online_mpc(
     c_deg: float = 0.05,
     demand_rate: float = 30.0,
     billing_days: float = 30.0,
+    target_peak_kw: float | None = None,
 ) -> OnlineMpcRunResult:
     if runner is None:
         raise MpcRunnerNotConfigured("MPC runner is not configured")
@@ -241,6 +243,7 @@ def run_online_mpc(
                 c_deg=c_deg,
                 demand_rate=demand_rate,
                 billing_days=billing_days,
+                target_peak_kw=target_peak_kw,
             )
         )
         if isinstance(runner_result, MpcRunnerResult):

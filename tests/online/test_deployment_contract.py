@@ -150,6 +150,11 @@ def test_env_example_documents_online_mpc_runtime_variables():
     assert "MPC_DATABASE_URL=sqlite:////app/data/mpc_online.db" in text
     assert "MPC_INPUT_SIGNATURE_SECRET=" in text
     assert "MPC_ONLINE_BASE_URL=http://127.0.0.1:8000" in text
+    assert "MPC_DB_BACKUP_DIR=/app/data/backups" in text
+    assert "MPC_RAW_RETENTION_DAYS=30" in text
+    assert "MPC_TELEMETRY_RETENTION_DAYS=365" in text
+    assert "MPC_RESULT_RETENTION_DAYS=365" in text
+    assert "MPC_BACKUP_RETENTION_DAYS=30" in text
 
 
 def test_docker_release_script_builds_and_optionally_pushes_registry_image():

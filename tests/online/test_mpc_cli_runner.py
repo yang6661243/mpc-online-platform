@@ -11,6 +11,7 @@ from microgrid_online.mpc_cli_runner import (
     parse_microgrid_mpc_output,
 )
 from microgrid_online.mpc_run import OnlineMpcRunInput
+from microgrid_online.models import Telemetry15Min
 from microgrid_online.time_utils import parse_timestamp
 
 
@@ -108,6 +109,7 @@ def test_cli_runner_writes_config_invokes_microgrid_mpc_and_parses_output(tmp_pa
         c_deg=0.05,
         demand_rate=30.0,
         billing_days=30.0,
+        target_peak_kw=None,
     )
 
     result = runner(run_input)
@@ -120,3 +122,117 @@ def test_cli_runner_writes_config_invokes_microgrid_mpc_and_parses_output(tmp_pa
     assert result.metrics.total_cost_yuan == 180.125
     assert result.curve[0]["grid_power_kw"] == 380.0
     assert result.curve[0]["battery_power_kw"] == 40.0
+
+
+def test_cli_runner_prefers_manual_target_peak_from_run_input(tmp_path: Path):
+    scenario_path = tmp_path / "scenario.xlsx"
+    scenario_path.write_bytes(b"placeholder")
+    written_configs = []
+
+    def fake_command(command, _cwd):
+        config_path = Path(command[command.index("--config") + 1])
+        cfg = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+        written_configs.append(cfg)
+        _write_mpc_output(Path(cfg["output"]))
+
+    runner = MicrogridMpcCliRunner(
+        MicrogridMpcCliRunnerConfig(
+            project_root=tmp_path,
+            target_peak_ratio=0.9,
+            target_peak_kw=None,
+        ),
+        command_runner=fake_command,
+    )
+    run_input = OnlineMpcRunInput(
+        run_id="mpc_req_manual_peak",
+        plant_id="aodelai",
+        profile="online_cli",
+        start_time=parse_timestamp("2026-06-12T10:00:00+08:00"),
+        end_time=parse_timestamp("2026-06-12T10:30:00+08:00"),
+        scenario=MpcScenarioExport(output_path=scenario_path, load_base_kw=1000.0, steps=2),
+        telemetry_rows=[],
+        actual_metrics=StrategyMetrics(
+            peak_kw=430.0,
+            purchase_cost_yuan=170.0,
+            export_revenue_yuan=0.0,
+            degradation_cost_yuan=1.0,
+            demand_charge_yuan=20.0,
+            total_cost_yuan=191.0,
+            soc_min=0.58,
+            soc_max=0.60,
+            reverse_flow_count=0,
+        ),
+        buy_price=0.8,
+        sell_price=0.3,
+        c_deg=0.05,
+        demand_rate=30.0,
+        billing_days=30.0,
+        target_peak_kw=260.0,
+    )
+
+    runner(run_input)
+
+    assert written_configs[0]["mpc"]["target_peak_kw"] == 260.0
+
+
+def test_cli_runner_expands_soc_bounds_to_include_measured_initial_soc(tmp_path: Path):
+    scenario_path = tmp_path / "scenario.xlsx"
+    scenario_path.write_bytes(b"placeholder")
+    written_configs = []
+
+    def fake_command(command, _cwd):
+        config_path = Path(command[command.index("--config") + 1])
+        cfg = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+        written_configs.append(cfg)
+        _write_mpc_output(Path(cfg["output"]))
+
+    runner = MicrogridMpcCliRunner(
+        MicrogridMpcCliRunnerConfig(
+            project_root=tmp_path,
+            battery_soc_min=0.10,
+            battery_soc_max=0.90,
+            target_peak_kw=260.0,
+        ),
+        command_runner=fake_command,
+    )
+    run_input = OnlineMpcRunInput(
+        run_id="mpc_low_soc",
+        plant_id="ecloud_factory",
+        profile="online_cli",
+        start_time=parse_timestamp("2026-06-12T10:00:00+08:00"),
+        end_time=parse_timestamp("2026-06-12T10:30:00+08:00"),
+        scenario=MpcScenarioExport(output_path=scenario_path, load_base_kw=1000.0, steps=2),
+        telemetry_rows=[
+            Telemetry15Min(
+                plant_id="ecloud_factory",
+                start_time=parse_timestamp("2026-06-12T10:00:00+08:00"),
+                end_time=parse_timestamp("2026-06-12T10:15:00+08:00"),
+                soc_start=0.05,
+                soc_end=0.07,
+            )
+        ],
+        actual_metrics=StrategyMetrics(
+            peak_kw=430.0,
+            purchase_cost_yuan=170.0,
+            export_revenue_yuan=0.0,
+            degradation_cost_yuan=1.0,
+            demand_charge_yuan=20.0,
+            total_cost_yuan=191.0,
+            soc_min=0.05,
+            soc_max=0.07,
+            reverse_flow_count=0,
+        ),
+        buy_price=0.8,
+        sell_price=0.3,
+        c_deg=0.05,
+        demand_rate=30.0,
+        billing_days=30.0,
+        target_peak_kw=None,
+    )
+
+    runner(run_input)
+
+    battery_cfg = written_configs[0]["battery"]
+    assert battery_cfg["soc_init"] == 0.05
+    assert battery_cfg["soc_min"] == 0.05
+    assert battery_cfg["soc_max"] == 0.90

@@ -57,6 +57,7 @@ def test_run_endpoint_exports_scenario_and_saves_comparison(tmp_path: Path):
         assert run_input.scenario.output_path.exists()
         assert run_input.scenario.steps == 2
         assert run_input.actual_metrics.peak_kw == 430.0
+        assert run_input.target_peak_kw == 260.0
         return StrategyMetrics(
             peak_kw=380.0,
             purchase_cost_yuan=120.0,
@@ -90,6 +91,7 @@ def test_run_endpoint_exports_scenario_and_saves_comparison(tmp_path: Path):
             "c_deg": 0.05,
             "demand_rate": 30.0,
             "billing_days": 30,
+            "target_peak_kw": 260.0,
         },
     )
 
@@ -98,6 +100,7 @@ def test_run_endpoint_exports_scenario_and_saves_comparison(tmp_path: Path):
     assert body["success"] is True
     assert body["status"] == "succeeded"
     assert body["run_id"] == "mpc_req_run_1"
+    assert body["target_peak_kw"] == 260.0
     assert Path(body["scenario_path"]).exists()
     assert len(runner_calls) == 1
 

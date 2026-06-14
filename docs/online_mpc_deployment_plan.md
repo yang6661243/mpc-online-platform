@@ -245,15 +245,18 @@ GET /api/v1/mpc/runs/{run_id}
 - 功率正负号转换。
 - SOC 百分比转 0-1。
 - 可选 HMAC-SHA256 请求签名校验。
+- 数据口径与数据库维护策略文档：`docs/online_data_retention_policy.md`。
+- SQLite 备份和过期数据清理命令：`python -m microgrid_online.db_maintenance`。
+- 数据保留默认配置：
+  - 原始电网和储能数据保留 30 天。
+  - 15 分钟聚合数据保留 365 天。
+  - MPC 运行结果、策略对比和曲线保留 365 天。
+  - 备份文件保留 30 天。
 - 实际策略和 MPC 策略对比指标函数。
 - 看板基础 API。
 - 在线服务测试。
 
-当前测试结果：
-
-```text
-38 passed
-```
+每次上线前需要重新执行 `tests/online` 和前端测试，不能依赖历史测试数量。
 
 ## 9. 下一步工作
 
@@ -276,6 +279,11 @@ GET /api/v1/mpc/runs/{run_id}
 3. 接入实习平台前端框架。
    - 如果线上平台已有统一菜单、权限、主题，需要把当前页面改造成平台页面组件。
    - 如果先独立部署，可以继续使用当前 FastAPI 内置页面。
+
+4. 配置数据库日常维护任务。
+   - 先执行 dry-run，确认待删除行数。
+   - 再配置每天凌晨执行 `python -m microgrid_online.db_maintenance --execute`。
+   - 维护命令只在 `mpc-online-platform` 容器内运行，不进入或修改实习平台容器。
 
 ## 10. 二期预留
 
@@ -345,3 +353,27 @@ python scripts/online_mpc_smoke_test.py \
 ```
 
 如果启用了 `MPC_INPUT_SIGNATURE_SECRET`，脚本会自动读取该环境变量并给 `/api/v1/mpc/input-data` 请求加签。
+
+## 12. 数据库维护命令
+
+查看将要清理的数据，不删除：
+
+```bash
+docker exec mpc-online-platform \
+  python -m microgrid_online.db_maintenance
+```
+
+实际执行备份和清理：
+
+```bash
+docker exec mpc-online-platform \
+  python -m microgrid_online.db_maintenance --execute
+```
+
+推荐宿主机 cron：
+
+```cron
+15 3 * * * docker exec mpc-online-platform python -m microgrid_online.db_maintenance --execute >> /opt/mpc-online/data/db_maintenance.log 2>&1
+```
+
+该命令只维护 MPC 容器自己的 SQLite 数据库和备份目录，不应作用于 `internship-frontend`、`internship-backend` 或实习平台数据库。

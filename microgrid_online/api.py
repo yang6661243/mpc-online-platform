@@ -61,12 +61,14 @@ class RunMpcRequest(BaseModel):
     c_deg: float = 0.05
     demand_rate: float = 30.0
     billing_days: float = 30.0
+    target_peak_kw: float | None = Field(default=None, gt=0)
 
 
 class AggregateRequest(BaseModel):
     start_time: str
     end_time: str
     window_minutes: int = 15
+    battery_power_mode: str | None = None
 
 
 def _cors_origins_from_env() -> list[str]:
@@ -218,6 +220,7 @@ def create_app(
                 c_deg=payload.c_deg,
                 demand_rate=payload.demand_rate,
                 billing_days=payload.billing_days,
+                target_peak_kw=payload.target_peak_kw,
             )
         except MpcRunnerNotConfigured as exc:
             raise HTTPException(status_code=501, detail=str(exc)) from exc
@@ -231,6 +234,7 @@ def create_app(
             "run_id": result.run.run_id,
             "plant_id": result.run.plant_id,
             "status": result.run.status,
+            "target_peak_kw": payload.target_peak_kw,
             "scenario_path": str(result.scenario.output_path),
             "comparison": comparison_payload(result.comparison),
             "message": "mpc run succeeded",
@@ -249,6 +253,8 @@ def create_app(
                 start_time=payload.start_time,
                 end_time=payload.end_time,
                 window_minutes=payload.window_minutes,
+                battery_power_mode=payload.battery_power_mode
+                or os.getenv("MPC_BATTERY_POWER_MODE", "signed_meter"),
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc

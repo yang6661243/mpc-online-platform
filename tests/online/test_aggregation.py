@@ -45,6 +45,41 @@ def test_aggregate_15min_derives_load_minus_pv_from_grid_and_battery_power():
     assert persisted.load_minus_pv_kw_avg == 425.0
 
 
+def test_aggregate_15min_can_infer_battery_sign_from_soc_delta():
+    session = create_sqlite_memory_session()
+    ingest_grid_records(
+        session,
+        plant_id="ecloud_factory",
+        records=[
+            {"time": "2026-06-12T10:00:00+08:00", "grid_power_kw": 400.0},
+            {"time": "2026-06-12T10:05:00+08:00", "grid_power_kw": 420.0},
+        ],
+    )
+    ingest_battery_records(
+        session,
+        plant_id="ecloud_factory",
+        records=[
+            {"time": "2026-06-12T10:00:00+08:00", "battery_power_kw": 20.0, "soc": 0.60},
+            {"time": "2026-06-12T10:05:00+08:00", "battery_power_kw": 30.0, "soc": 0.62},
+        ],
+    )
+
+    aggregates = aggregate_telemetry_15min(
+        session,
+        plant_id="ecloud_factory",
+        start_time="2026-06-12T10:00:00+08:00",
+        end_time="2026-06-12T10:15:00+08:00",
+        battery_power_mode="soc_delta",
+    )
+
+    row = aggregates[0]
+    assert row.grid_power_kw_avg == 410.0
+    assert row.battery_power_kw_avg == -25.0
+    assert row.load_minus_pv_kw_avg == 385.0
+    assert row.soc_start == 0.60
+    assert row.soc_end == 0.62
+
+
 def test_aggregate_marks_missing_battery_window_as_incomplete():
     session = create_sqlite_memory_session()
     ingest_grid_records(

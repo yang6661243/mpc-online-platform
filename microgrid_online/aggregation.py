@@ -21,6 +21,36 @@ def _window_quality(grid_count: int, battery_count: int) -> str:
     return "ok"
 
 
+def _battery_power_average(
+    battery_rows: list[RawBattery],
+    *,
+    battery_power_mode: str,
+    soc_deadband: float = 0.001,
+) -> float | None:
+    if not battery_rows:
+        return None
+
+    raw_values = [float(row.battery_power_kw) for row in battery_rows]
+    if battery_power_mode == "signed_meter":
+        return mean(raw_values)
+
+    if battery_power_mode != "soc_delta":
+        raise ValueError("battery_power_mode must be signed_meter or soc_delta")
+
+    soc_start = battery_rows[0].soc
+    soc_end = battery_rows[-1].soc
+    if soc_start is None or soc_end is None:
+        return None
+
+    soc_delta = float(soc_end) - float(soc_start)
+    if abs(soc_delta) < soc_deadband:
+        return 0.0
+
+    magnitude = mean(abs(value) for value in raw_values)
+    # System convention: positive battery power means discharge, negative means charge.
+    return -magnitude if soc_delta > 0 else magnitude
+
+
 def _upsert_telemetry_window(
     session: Session,
     *,
@@ -58,6 +88,7 @@ def aggregate_telemetry_15min(
     start_time,
     end_time,
     window_minutes: int = 15,
+    battery_power_mode: str = "signed_meter",
 ) -> list[Telemetry15Min]:
     start = parse_timestamp(start_time)
     end = parse_timestamp(end_time)
@@ -91,10 +122,12 @@ def aggregate_telemetry_15min(
         ).all()
 
         grid_values = [row.grid_power_kw for row in grid_rows]
-        battery_values = [row.battery_power_kw for row in battery_rows]
         grid_avg = mean(grid_values) if grid_values else None
         grid_max = max(grid_values) if grid_values else None
-        battery_avg = mean(battery_values) if battery_values else None
+        battery_avg = _battery_power_average(
+            battery_rows,
+            battery_power_mode=battery_power_mode,
+        )
         load_minus_pv = grid_avg + battery_avg if grid_avg is not None and battery_avg is not None else None
         values = {
             "grid_power_kw_avg": grid_avg,

@@ -134,7 +134,8 @@ class MicrogridMpcCliRunner:
 
     def _build_config(self, run_input: OnlineMpcRunInput, output_path: Path) -> dict:
         soc_init = self._initial_soc(run_input)
-        target_peak_kw = self.config.target_peak_kw
+        soc_min, soc_max = self._effective_soc_bounds(soc_init)
+        target_peak_kw = run_input.target_peak_kw or self.config.target_peak_kw
         if target_peak_kw is None:
             target_peak_kw = run_input.actual_metrics.peak_kw * self.config.target_peak_ratio
         if target_peak_kw <= 0:
@@ -154,8 +155,8 @@ class MicrogridMpcCliRunner:
                 "charge_max_kw": self.config.battery_charge_max_kw,
                 "discharge_max_kw": self.config.battery_discharge_max_kw,
                 "soc_init": soc_init,
-                "soc_min": self.config.battery_soc_min,
-                "soc_max": self.config.battery_soc_max,
+                "soc_min": soc_min,
+                "soc_max": soc_max,
                 "charge_eff": self.config.battery_charge_eff,
                 "discharge_eff": self.config.battery_discharge_eff,
             },
@@ -208,3 +209,8 @@ class MicrogridMpcCliRunner:
         if run_input.actual_metrics.soc_max is not None:
             return float(run_input.actual_metrics.soc_max)
         return 0.5
+
+    def _effective_soc_bounds(self, soc_init: float) -> tuple[float, float]:
+        soc_min = min(float(self.config.battery_soc_min), float(soc_init))
+        soc_max = max(float(self.config.battery_soc_max), float(soc_init))
+        return max(0.0, soc_min), min(1.0, soc_max)
