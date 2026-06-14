@@ -59,10 +59,14 @@ def test_build_dashboard_payload_returns_actual_series_without_mpc_result():
             "actual_grid_power_kw": 180.0,
             "actual_battery_power_kw": 2.0,
             "actual_soc": 0.5,
+            "actual_load_kw": None,
+            "actual_pv_kw": None,
             "load_minus_pv_kw": 182.0,
             "mpc_grid_power_kw": None,
             "mpc_battery_power_kw": None,
             "mpc_soc": None,
+            "mpc_load_kw": None,
+            "mpc_pv_kw": None,
             "buy_price": None,
             "sell_price": None,
             "quality_flag": "ok",
@@ -72,10 +76,14 @@ def test_build_dashboard_payload_returns_actual_series_without_mpc_result():
             "actual_grid_power_kw": 210.0,
             "actual_battery_power_kw": 0.1,
             "actual_soc": 0.5,
+            "actual_load_kw": None,
+            "actual_pv_kw": None,
             "load_minus_pv_kw": 210.1,
             "mpc_grid_power_kw": None,
             "mpc_battery_power_kw": None,
             "mpc_soc": None,
+            "mpc_load_kw": None,
+            "mpc_pv_kw": None,
             "buy_price": None,
             "sell_price": None,
             "quality_flag": "ok",
@@ -125,10 +133,14 @@ def test_build_dashboard_payload_can_replay_a_specific_run_id():
                 actual_grid_power_kw=109.81,
                 actual_battery_power_kw=0.0,
                 actual_soc=0.5,
+                actual_load_kw=150.0,
+                actual_pv_kw=40.19,
                 load_minus_pv_kw=109.81,
                 mpc_grid_power_kw=148.56,
                 mpc_battery_power_kw=-38.75,
                 mpc_soc=0.5,
+                mpc_load_kw=150.0,
+                mpc_pv_kw=40.19,
                 buy_price=0.241,
                 sell_price=0.0,
             ),
@@ -139,10 +151,14 @@ def test_build_dashboard_payload_can_replay_a_specific_run_id():
                 actual_grid_power_kw=117.53,
                 actual_battery_power_kw=0.0,
                 actual_soc=0.5,
+                actual_load_kw=160.0,
+                actual_pv_kw=42.47,
                 load_minus_pv_kw=117.53,
                 mpc_grid_power_kw=148.56,
                 mpc_battery_power_kw=-31.03,
                 mpc_soc=0.5118,
+                mpc_load_kw=160.0,
+                mpc_pv_kw=42.47,
                 buy_price=0.241,
                 sell_price=0.0,
             ),
@@ -162,6 +178,10 @@ def test_build_dashboard_payload_can_replay_a_specific_run_id():
     assert payload["current"]["grid_power_kw"] == 117.53
     assert payload["current"]["battery_power_kw"] == 0.0
     assert payload["current"]["soc"] == 0.5
+    assert payload["series"][0]["actual_load_kw"] == 150.0
+    assert payload["series"][0]["actual_pv_kw"] == 40.19
+    assert payload["series"][0]["mpc_load_kw"] == 150.0
+    assert payload["series"][0]["mpc_pv_kw"] == 40.19
     assert [point["mpc_grid_power_kw"] for point in payload["series"]] == [148.56, 148.56]
 
 

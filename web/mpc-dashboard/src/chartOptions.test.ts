@@ -13,10 +13,14 @@ const sampleSeries: DashboardSeriesPoint[] = [
     actual_grid_power_kw: 216.2,
     actual_battery_power_kw: -12.5,
     actual_soc: 0.5,
+    actual_load_kw: 260.2,
+    actual_pv_kw: 56.5,
     load_minus_pv_kw: 203.7,
     mpc_grid_power_kw: 190.1,
     mpc_battery_power_kw: 13.2,
     mpc_soc: 0.54,
+    mpc_load_kw: 258.0,
+    mpc_pv_kw: 54.3,
     buy_price: null,
     sell_price: null,
     quality_flag: "ok",
@@ -26,10 +30,14 @@ const sampleSeries: DashboardSeriesPoint[] = [
     actual_grid_power_kw: 220.4,
     actual_battery_power_kw: 0,
     actual_soc: 0.49,
+    actual_load_kw: 280.4,
+    actual_pv_kw: 60.0,
     load_minus_pv_kw: 220.4,
     mpc_grid_power_kw: null,
     mpc_battery_power_kw: null,
     mpc_soc: null,
+    mpc_load_kw: null,
+    mpc_pv_kw: null,
     buy_price: null,
     sell_price: null,
     quality_flag: "ok",
@@ -76,13 +84,19 @@ describe("chart option builders", () => {
     const factoryOption = buildStrategyChartOption(sampleSeries, "factory");
     const mpcOption = buildStrategyChartOption(sampleSeries, "mpc");
 
-    expect(factoryOption.legend.data).toEqual(["电网功率", "储能功率", "SOC"]);
+    expect(factoryOption.legend.data).toEqual(["负荷功率", "光伏出力", "净负荷", "电网功率", "储能功率", "SOC"]);
     expect(factoryOption.series).toMatchObject([
+      { name: "负荷功率", data: [260.2, 280.4] },
+      { name: "光伏出力", data: [56.5, 60] },
+      { name: "净负荷", data: [203.7, 220.4] },
       { name: "电网功率", data: [216.2, 220.4] },
       { name: "储能功率", data: [-12.5, 0] },
       { name: "SOC", yAxisIndex: 1, data: [50, 49] },
     ]);
     expect(mpcOption.series).toMatchObject([
+      { name: "负荷功率", data: [258, null] },
+      { name: "光伏出力", data: [54.3, null] },
+      { name: "净负荷", data: [203.7, 220.4] },
       { name: "电网功率", data: [190.1, null] },
       { name: "储能功率", data: [13.2, null] },
       { name: "SOC", yAxisIndex: 1, data: [54, null] },

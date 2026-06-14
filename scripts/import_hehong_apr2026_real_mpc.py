@@ -15,6 +15,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from microgrid_online.comparison import compute_actual_strategy_metrics, save_strategy_comparison
+from microgrid_online.database import ensure_runtime_schema
 from microgrid_online.models import Base, MpcRun, StrategyComparison, StrategyCurvePoint, Telemetry15Min, utc_now
 
 
@@ -160,10 +161,14 @@ def import_curves(
                 actual_grid_power_kw=float(row.actual_grid_kw),
                 actual_battery_power_kw=float(row.actual_battery_kw),
                 actual_soc=float(row.actual_soc),
+                actual_load_kw=float(row.actual_load_kw),
+                actual_pv_kw=float(row.actual_pv_kw),
                 load_minus_pv_kw=actual_load_minus_pv,
                 mpc_grid_power_kw=float(row.mpc_grid_kw),
                 mpc_battery_power_kw=float(row.mpc_battery_kw),
                 mpc_soc=float(row.mpc_soc),
+                mpc_load_kw=float(row.mpc_load_kw),
+                mpc_pv_kw=float(row.mpc_pv_kw),
                 buy_price=float(row.actual_buy_price),
                 sell_price=float(row.actual_sell_price),
             )
@@ -220,6 +225,7 @@ def main() -> None:
     joined = load_joined_curves(args.actual_xlsx, args.mpc_xlsx)
     engine = create_engine(args.db_url, future=True, connect_args={"check_same_thread": False})
     Base.metadata.create_all(engine)
+    ensure_runtime_schema(engine)
     session_factory = sessionmaker(bind=engine, class_=Session, expire_on_commit=False, future=True)
     with session_factory() as session:
         summary = import_curves(

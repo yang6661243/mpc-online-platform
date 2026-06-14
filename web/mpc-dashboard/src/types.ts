@@ -4,6 +4,10 @@ export interface DashboardCurrent {
   time: string | null;
   grid_power_kw: number | null;
   battery_power_kw: number | null;
+  actual_load_kw?: number | null;
+  actual_pv_kw?: number | null;
+  mpc_load_kw?: number | null;
+  mpc_pv_kw?: number | null;
   load_minus_pv_kw: number | null;
   soc: number | null;
   quality_flag: QualityFlag;
@@ -26,10 +30,14 @@ export interface DashboardSeriesPoint {
   actual_grid_power_kw: number | null;
   actual_battery_power_kw: number | null;
   actual_soc: number | null;
+  actual_load_kw?: number | null;
+  actual_pv_kw?: number | null;
   load_minus_pv_kw: number | null;
   mpc_grid_power_kw: number | null;
   mpc_battery_power_kw: number | null;
   mpc_soc: number | null;
+  mpc_load_kw?: number | null;
+  mpc_pv_kw?: number | null;
   buy_price: number | null;
   sell_price: number | null;
   quality_flag: QualityFlag;

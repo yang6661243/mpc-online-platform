@@ -18,13 +18,15 @@ interface SeriesOption {
   smooth: boolean;
   yAxisIndex?: number;
   data: Array<number | null>;
+  lineStyle?: Record<string, string | number>;
+  markLine?: Record<string, unknown>;
 }
 
 export interface DashboardChartOption {
   [key: string]: unknown;
   color: string[];
   tooltip: { trigger: "axis" };
-  legend: { top: number; data: string[] };
+  legend: Record<string, unknown> & { top: number; data: string[] };
   grid: Record<string, number>;
   xAxis: AxisOption;
   yAxis: AxisOption | AxisOption[];
@@ -44,6 +46,14 @@ function round2(value: number): number {
 }
 
 const darkChartText = { color: "#cfefff" };
+
+function hasData(values: Array<number | null | undefined>): boolean {
+  return values.some((value) => value !== null && value !== undefined);
+}
+
+function valueOrNull(value: number | null | undefined): number | null {
+  return value === undefined ? null : value;
+}
 
 export function buildPowerChartOption(series: DashboardSeriesPoint[]): DashboardChartOption {
   return {
@@ -176,14 +186,69 @@ export function buildBatteryChartOption(series: DashboardSeriesPoint[]): Dashboa
 
 export function buildStrategyChartOption(series: DashboardSeriesPoint[], strategy: StrategyKind): DashboardChartOption {
   const isFactory = strategy === "factory";
-  const colors = isFactory ? ["#ff8a5c", "#ffd166", "#7cc7ff"] : ["#38d8a8", "#39d9ff", "#b7f46a"];
+  const load = series.map((point) => valueOrNull(isFactory ? point.actual_load_kw : point.mpc_load_kw));
+  const pv = series.map((point) => valueOrNull(isFactory ? point.actual_pv_kw : point.mpc_pv_kw));
+  const netLoad = series.map((point) => {
+    const loadKw = isFactory ? point.actual_load_kw : point.mpc_load_kw;
+    const pvKw = isFactory ? point.actual_pv_kw : point.mpc_pv_kw;
+    if (loadKw !== null && loadKw !== undefined && pvKw !== null && pvKw !== undefined) {
+      return round2(loadKw - pvKw);
+    }
+    return point.load_minus_pv_kw;
+  });
+  const grid = series.map((point) => (isFactory ? point.actual_grid_power_kw : point.mpc_grid_power_kw));
+  const battery = series.map((point) => (isFactory ? point.actual_battery_power_kw : point.mpc_battery_power_kw));
+  const soc = series.map((point) => socPercent(isFactory ? point.actual_soc : point.mpc_soc));
+  const optionSeries: SeriesOption[] = [];
+  const legendData: string[] = [];
+
+  function addPowerSeries(name: string, data: Array<number | null>) {
+    if (!hasData(data)) return;
+    legendData.push(name);
+    optionSeries.push({
+      name,
+      type: "line",
+      showSymbol: false,
+      smooth: true,
+      data,
+      ...(name === "储能功率"
+        ? {
+            markLine: {
+              symbol: "none",
+              label: { formatter: "充放电分界" },
+              lineStyle: { color: "#38d8a8", type: "dashed", width: 1 },
+              data: [{ yAxis: 0 }],
+            },
+          }
+        : {}),
+    });
+  }
+
+  addPowerSeries("负荷功率", load);
+  addPowerSeries("光伏出力", pv);
+  addPowerSeries("净负荷", netLoad);
+  addPowerSeries("电网功率", grid);
+  addPowerSeries("储能功率", battery);
+  legendData.push("SOC");
+  optionSeries.push({
+    name: "SOC",
+    type: "line",
+    showSymbol: false,
+    smooth: true,
+    yAxisIndex: 1,
+    data: soc,
+  });
+
+  const colors = isFactory
+    ? ["#ff6b6b", "#4ecdc4", "#ffd166", "#9b59b6", "#f39c12", "#7cc7ff"]
+    : ["#ff7f66", "#39d9ff", "#b7f46a", "#38d8a8", "#20d0c9", "#e6ff68"];
 
   return {
     color: colors,
     textStyle: darkChartText,
     tooltip: { trigger: "axis" },
-    legend: { top: 4, data: ["电网功率", "储能功率", "SOC"] },
-    grid: { left: 52, right: 54, top: 48, bottom: 42 },
+    legend: { top: 4, type: "scroll", data: legendData },
+    grid: { left: 52, right: 54, top: 76, bottom: 42 },
     xAxis: {
       type: "category",
       data: series.map((point) => shortTime(point.time)),
@@ -197,29 +262,6 @@ export function buildStrategyChartOption(series: DashboardSeriesPoint[], strateg
       { type: "inside" },
       { type: "slider", height: 18, bottom: 8 },
     ],
-    series: [
-      {
-        name: "电网功率",
-        type: "line",
-        showSymbol: false,
-        smooth: true,
-        data: series.map((point) => (isFactory ? point.actual_grid_power_kw : point.mpc_grid_power_kw)),
-      },
-      {
-        name: "储能功率",
-        type: "line",
-        showSymbol: false,
-        smooth: true,
-        data: series.map((point) => (isFactory ? point.actual_battery_power_kw : point.mpc_battery_power_kw)),
-      },
-      {
-        name: "SOC",
-        type: "line",
-        showSymbol: false,
-        smooth: true,
-        yAxisIndex: 1,
-        data: series.map((point) => socPercent(isFactory ? point.actual_soc : point.mpc_soc)),
-      },
-    ],
+    series: optionSeries,
   };
 }

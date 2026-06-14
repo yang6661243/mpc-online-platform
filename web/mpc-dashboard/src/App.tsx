@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { fetchDashboard } from "./api";
 import { DetailTable } from "./components/DetailTable";
 import { MetricCard } from "./components/MetricCard";
+import { PowerChart } from "./components/PowerChart";
 import { RevenueChart } from "./components/RevenueChart";
 import { StatusBar } from "./components/StatusBar";
 import { StrategyCard } from "./components/StrategyCard";
@@ -219,6 +220,17 @@ export default function App() {
                 savingYuan={comparison?.cost_saving_yuan}
               />
             </section>
+
+            <article className="panel power-panel">
+              <div className="panel-head">
+                <div>
+                  <span className="panel-kicker">功率对比</span>
+                  <h2>工厂与 MPC 电网功率对比</h2>
+                </div>
+                <p>直接观察削峰、反送和策略偏差</p>
+              </div>
+              <PowerChart series={data?.series || []} />
+            </article>
 
             <article className="panel revenue-panel">
               <div className="panel-head">
