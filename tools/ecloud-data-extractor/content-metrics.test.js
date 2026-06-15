@@ -50,21 +50,29 @@ function loadContentWithMetricValue(value) {
 
 test("detects whether all default eCloud metrics are already selected", () => {
   const hooks = loadContentWithMetricValue(
-    "计量电表/1352-总有功功率,防逆流电表-ADW300/ADW-总有功功率,1-BMS/系统SOC,",
+    "计量电表/总有功功率,防逆流电表/ADW-总有功功率,3-BMS/BMS-系统SOC,",
   );
 
   assert.equal(typeof hooks.getMissingRequiredMetrics, "function");
   assert.deepEqual(JSON.parse(JSON.stringify(hooks.getMissingRequiredMetrics())), []);
 });
 
+test("detects alternate station metric names as required metrics", () => {
+  const hooks = loadContentWithMetricValue(
+    "4-BMS/系统SOC,防逆流电表-666/666-合相有功功率Pt,计量电表-1352/1352-总有功功率",
+  );
+
+  assert.deepEqual(JSON.parse(JSON.stringify(hooks.getMissingRequiredMetrics())), []);
+});
+
 test("reports missing default eCloud metrics", () => {
-  const hooks = loadContentWithMetricValue("计量电表/1352-总有功功率,");
+  const hooks = loadContentWithMetricValue("计量电表/总有功功率,");
 
   assert.deepEqual(
     JSON.parse(JSON.stringify(hooks.getMissingRequiredMetrics().map((metric) => metric.fullName))),
     [
-      "1-BMS/系统SOC",
-      "防逆流电表-ADW300/ADW-总有功功率",
+      "3-BMS/BMS-系统SOC",
+      "防逆流电表/ADW-总有功功率",
     ],
   );
 });

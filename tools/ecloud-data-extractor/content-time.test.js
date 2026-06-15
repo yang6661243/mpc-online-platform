@@ -106,7 +106,7 @@ test("fillVisibleTimeRangeInputs writes visible Element UI range inputs without 
 }
 );
 
-test("getTimeRange uses a wide enough window for delayed eCloud telemetry", () => {
+test("getTimeRange uses a ten minute window ending one minute before now", () => {
   const RealDate = Date;
   class FixedDate extends RealDate {
     constructor(...args) {
@@ -135,8 +135,8 @@ test("getTimeRange uses a wide enough window for delayed eCloud telemetry", () =
   assert.equal(typeof hooks.getTimeRange, "function");
 
   assert.deepEqual(JSON.parse(JSON.stringify(hooks.getTimeRange())), {
-    start: "2026-06-12 00:47:00",
-    end: "2026-06-13 00:47:00",
+    start: "2026-06-13 00:36:00",
+    end: "2026-06-13 00:46:00",
   });
 });
 
@@ -162,4 +162,62 @@ test("detects an existing valid visible time range", () => {
   const hooks = loadContentWithDocument(document);
   assert.equal(typeof hooks.hasValidVisibleTimeRange, "function");
   assert.equal(hooks.hasValidVisibleTimeRange(), true);
+});
+
+test("fills recent time range and clicks the visible query button", async () => {
+  const RealDate = Date;
+  class FixedDate extends RealDate {
+    constructor(...args) {
+      if (args.length > 0) {
+        super(...args);
+        return;
+      }
+      super(2026, 5, 15, 9, 35, 18);
+    }
+
+    static now() {
+      return new FixedDate().getTime();
+    }
+  }
+
+  const startInput = new FakeInput();
+  const endInput = new FakeInput();
+  let clickCount = 0;
+  const queryButton = {
+    disabled: false,
+    textContent: "查询",
+    click() {
+      clickCount += 1;
+    },
+    getBoundingClientRect() {
+      return { width: 88, height: 32 };
+    },
+  };
+  const picker = {
+    querySelectorAll(selector) {
+      assert.equal(selector, "input");
+      return [startInput, endInput];
+    },
+  };
+  const document = {
+    readyState: "complete",
+    querySelector(selector) {
+      return selector === ".el-date-editor--datetimerange" ? picker : null;
+    },
+    querySelectorAll(selector) {
+      assert.equal(selector, "button, .el-button");
+      return [queryButton];
+    },
+    addEventListener() {},
+    body: { click() {} },
+  };
+
+  const hooks = loadContentWithDocument(document, { Date: FixedDate });
+
+  const ok = await hooks.fillRecentTimeRangeAndClickQuery();
+
+  assert.equal(ok, true);
+  assert.equal(startInput.value, "2026-06-15 09:24:00");
+  assert.equal(endInput.value, "2026-06-15 09:34:00");
+  assert.equal(clickCount, 1);
 });

@@ -56,38 +56,80 @@ function valueOrNull(value: number | null | undefined): number | null {
 }
 
 export function buildPowerChartOption(series: DashboardSeriesPoint[]): DashboardChartOption {
+  const factoryLoad = series.map((point) => valueOrNull(point.actual_load_kw));
+  const mpcLoad = series.map((point) => valueOrNull(point.mpc_load_kw));
+  const factoryPv = series.map((point) => valueOrNull(point.actual_pv_kw));
+  const mpcPv = series.map((point) => valueOrNull(point.mpc_pv_kw));
+  const factoryGrid = series.map((point) => point.actual_grid_power_kw);
+  const mpcGrid = series.map((point) => point.mpc_grid_power_kw);
+  const factoryBattery = series.map((point) => point.actual_battery_power_kw);
+  const mpcBattery = series.map((point) => point.mpc_battery_power_kw);
+  const factorySoc = series.map((point) => socPercent(point.actual_soc));
+  const mpcSoc = series.map((point) => socPercent(point.mpc_soc));
+  const optionSeries: SeriesOption[] = [];
+  const legendData: string[] = [];
+  const selected: Record<string, boolean> = {};
+
+  function addPair(label: string, factoryData: Array<number | null>, mpcData: Array<number | null>, options: { yAxisIndex?: number; defaultVisible?: boolean } = {}) {
+    const factoryName = `工厂${label}`;
+    const mpcName = `MPC${label}`;
+    const visible = Boolean(options.defaultVisible);
+
+    if (hasData(factoryData)) {
+      legendData.push(factoryName);
+      selected[factoryName] = visible;
+      optionSeries.push({
+        name: factoryName,
+        type: "line",
+        showSymbol: false,
+        smooth: true,
+        yAxisIndex: options.yAxisIndex,
+        data: factoryData,
+        lineStyle: { type: "solid", width: visible ? 2.4 : 1.6 },
+      });
+    }
+
+    if (hasData(mpcData)) {
+      legendData.push(mpcName);
+      selected[mpcName] = visible;
+      optionSeries.push({
+        name: mpcName,
+        type: "line",
+        showSymbol: false,
+        smooth: true,
+        yAxisIndex: options.yAxisIndex,
+        data: mpcData,
+        lineStyle: { type: "dashed", width: visible ? 2.4 : 1.6 },
+      });
+    }
+  }
+
+  addPair("电网功率", factoryGrid, mpcGrid, { defaultVisible: true });
+  addPair("负荷功率", factoryLoad, mpcLoad);
+  addPair("光伏出力", factoryPv, mpcPv);
+  addPair("储能功率", factoryBattery, mpcBattery);
+  addPair("SOC", factorySoc, mpcSoc, { yAxisIndex: 1 });
+
   return {
-    color: ["#1f6fd1", "#d56a1c"],
+    color: ["#4ecdc4", "#4ecdc4", "#ff6b6b", "#ff6b6b", "#ffd166", "#ffd166", "#f39c12", "#f39c12", "#9b59b6", "#9b59b6"],
     textStyle: darkChartText,
     tooltip: { trigger: "axis" },
-    legend: { top: 4, data: ["工厂当前策略", "MPC 策略"] },
-    grid: { left: 54, right: 28, top: 48, bottom: 42 },
+    legend: { top: 4, type: "scroll", data: legendData, selected },
+    grid: { left: 54, right: 58, top: 62, bottom: 42 },
     xAxis: {
       type: "category",
       data: series.map((point) => shortTime(point.time)),
       boundaryGap: false,
     },
-    yAxis: { type: "value", name: "kW", scale: true },
+    yAxis: [
+      { type: "value", name: "kW", scale: true },
+      { type: "value", name: "%", min: 0, max: 100 },
+    ],
     dataZoom: [
       { type: "inside" },
       { type: "slider", height: 18, bottom: 8 },
     ],
-    series: [
-      {
-        name: "工厂当前策略",
-        type: "line",
-        showSymbol: false,
-        smooth: true,
-        data: series.map((point) => point.actual_grid_power_kw),
-      },
-      {
-        name: "MPC 策略",
-        type: "line",
-        showSymbol: false,
-        smooth: true,
-        data: series.map((point) => point.mpc_grid_power_kw),
-      },
-    ],
+    series: optionSeries,
   };
 }
 

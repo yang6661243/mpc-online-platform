@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "eCloud数据自动采集",
   "version": "1.0.0",
-  "description": "自动采集ecloud.hoenergypower.cn电池分析数据并保存为CSV",
+  "description": "学习eCloud接口模板并错峰采集多电站实时数据",
   "permissions": [
     "storage",
     "activeTab",
@@ -11,6 +11,8 @@
   ],
   "host_permissions": [
     "https://ecloud.hoenergypower.cn/*",
+    "http://127.0.0.1:18000/*",
+    "http://localhost:18000/*",
     "http://8.163.49.151/*",
     "http://8.163.49.151:18000/*"
   ],

@@ -6,7 +6,7 @@
   <title>eCloud数据采集</title>
   <style>
     body {
-      width: 300px;
+      width: 420px;
       padding: 20px;
       font-family: Arial, sans-serif;
       background: #f5f5f5;
@@ -70,6 +70,93 @@
       gap: 10px;
     }
 
+    .query {
+      background: white;
+      padding: 15px;
+      border-radius: 8px;
+      margin-top: 15px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+
+    .query h2 {
+      font-size: 14px;
+      color: #043050;
+      margin: 0 0 10px 0;
+    }
+
+    .query-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+
+    .query-grid input {
+      box-sizing: border-box;
+      width: 100%;
+      padding: 8px;
+      border: 1px solid #ccd5dd;
+      border-radius: 4px;
+      font-size: 12px;
+    }
+
+    .config-grid {
+      display: grid;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .config-grid label {
+      display: grid;
+      gap: 4px;
+      color: #666;
+      font-size: 12px;
+    }
+
+    .config-grid input {
+      box-sizing: border-box;
+      width: 100%;
+      padding: 8px;
+      border: 1px solid #ccd5dd;
+      border-radius: 4px;
+      font-size: 12px;
+    }
+
+    .query-grid input:first-child {
+      grid-column: 1 / -1;
+    }
+
+    .query-result {
+      margin-top: 10px;
+      max-height: 180px;
+      overflow: auto;
+      border: 1px solid #e1e7ec;
+      border-radius: 4px;
+      background: #fff;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 11px;
+    }
+
+    th,
+    td {
+      padding: 6px;
+      border-bottom: 1px solid #edf1f4;
+      text-align: left;
+      vertical-align: top;
+      word-break: break-word;
+    }
+
+    th {
+      position: sticky;
+      top: 0;
+      background: #f7fafc;
+      color: #043050;
+    }
+
     button {
       padding: 12px;
       border: none;
@@ -121,6 +208,14 @@
       color: #043050;
       line-height: 1.5;
     }
+
+    .template-list {
+      margin-top: 8px;
+      padding-left: 16px;
+      color: #043050;
+      font-size: 12px;
+      line-height: 1.5;
+    }
   </style>
 </head>
 <body>
@@ -135,11 +230,23 @@
       <span class="status-value" id="statusText">正在检查...</span>
     </div>
     <div class="status-item">
+      <span class="status-label">学习状态:</span>
+      <span class="status-value" id="learningStatusText">未开始</span>
+    </div>
+    <div class="status-item">
+      <span class="status-label">已学习模板:</span>
+      <span class="status-value" id="templateCount">0 个</span>
+    </div>
+    <div class="status-item">
       <span class="status-label">已采集:</span>
       <span class="status-value" id="dataCount">0 条</span>
     </div>
     <div class="status-item">
-      <span class="status-label">CSV文件:</span>
+      <span class="status-label">本地库:</span>
+      <span class="status-value" id="localDbCount">0 条</span>
+    </div>
+    <div class="status-item">
+      <span class="status-label">Excel文件:</span>
       <span class="status-value" id="fileStatus">未选择</span>
     </div>
     <div class="status-item">
@@ -149,6 +256,10 @@
     <div class="status-item">
       <span class="status-label">MPC工厂:</span>
       <span class="status-value" id="mpcPlantId">--</span>
+    </div>
+    <div class="status-item">
+      <span class="status-label">MPC后端:</span>
+      <span class="status-value" id="mpcBaseUrl">--</span>
     </div>
     <div class="status-item">
       <span class="status-label">已推送:</span>
@@ -165,17 +276,69 @@
   </div>
 
   <div class="buttons">
+    <button class="btn-primary" id="btnStartLearning">开始学习</button>
+    <button class="btn-danger" id="btnStopLearning">停止学习</button>
     <button class="btn-primary" id="btnToggle">启动采集</button>
-    <button class="btn-secondary" id="btnDownload">下载数据</button>
+    <button class="btn-secondary" id="btnDownload">导出Excel</button>
     <button class="btn-secondary" id="btnClear">清空数据</button>
+  </div>
+
+  <div class="status">
+    <div class="status-item">
+      <span class="status-label">后端配置</span>
+      <span class="status-value" id="configStatus">--</span>
+    </div>
+    <div class="config-grid">
+      <label>
+        MPC后端地址
+        <input id="mpcBaseUrlInput" placeholder="http://127.0.0.1:18000">
+      </label>
+      <label>
+        MPC工厂ID
+        <input id="mpcPlantIdInput" placeholder="hehong_huajin">
+      </label>
+      <button class="btn-primary" id="btnSaveMpcConfig">保存后端配置</button>
+    </div>
+  </div>
+
+  <div class="status">
+    <strong>学习到的电站模板</strong>
+    <ol class="template-list" id="templateList">
+      <li>暂无模板</li>
+    </ol>
+  </div>
+
+  <div class="query">
+    <h2>查询本地库</h2>
+    <div class="query-grid">
+      <input id="queryTableName" placeholder="表名关键字，如 SOC / 计量电表 / ADW">
+      <input id="queryStart" placeholder="开始时间，如 2026-06-15 09:00">
+      <input id="queryEnd" placeholder="结束时间，如 2026-06-15 10:00">
+    </div>
+    <button class="btn-secondary" id="btnQuery">查询最近50条</button>
+    <div class="query-result">
+      <table>
+        <thead>
+          <tr>
+            <th>电站</th>
+            <th>数据时间</th>
+            <th>电表名称</th>
+            <th>值</th>
+          </tr>
+        </thead>
+        <tbody id="queryRows">
+          <tr><td colspan="4">暂无查询结果</td></tr>
+        </tbody>
+      </table>
+    </div>
   </div>
 
   <div class="info">
     <strong>使用说明:</strong><br>
     1. 打开目标网页<br>
-    2. 选择CSV文件（用于保存数据）<br>
+    2. 采集数据会写入插件本地库<br>
     3. 点击"启动采集"按钮<br>
-    4. 扩展将自动采集并保存数据
+    4. 可查询本地库或导出Excel核对
   </div>
 
   <script src="popup.js"></script>

@@ -5,8 +5,9 @@
 
   const DEFAULT_CONFIG = {
     plantId: "hehong_huajin",
-    mpcBaseUrl: "http://8.163.49.151:18000",
+    mpcBaseUrl: "http://127.0.0.1:18000",
     aggregateWindowMinutes: 15,
+    socHoldMinutes: 10,
   };
 
   function pad2(value) {
@@ -113,7 +114,8 @@
     const plantId = options.plantId || DEFAULT_CONFIG.plantId;
     const generatedAt = options.generatedAt || toChinaIsoTimestamp(new Date().toISOString());
     const gridRecords = [];
-    const batteryByTime = new Map();
+    const batteryPowerRows = [];
+    const socRows = [];
 
     for (const row of rows || []) {
       const field = classifyTableName(row.tableName);
@@ -121,15 +123,18 @@
 
       const time = toChinaIsoTimestamp(row.date);
       const value = toFiniteNumber(row.value);
+      const epochMs = partsToChinaEpochMs(parseChinaTimestamp(row.date));
 
       if (field === "grid_power_kw") {
         gridRecords.push({ time, grid_power_kw: value });
         continue;
       }
 
-      const batteryRow = batteryByTime.get(time) || { time };
-      batteryRow[field] = value;
-      batteryByTime.set(time, batteryRow);
+      if (field === "battery_power_kw") {
+        batteryPowerRows.push({ time, epochMs, battery_power_kw: value });
+      } else if (field === "soc") {
+        socRows.push({ time, epochMs, soc: value });
+      }
     }
 
     const payloads = [];
@@ -143,8 +148,20 @@
       });
     }
 
-    const batteryRecords = Array.from(batteryByTime.values())
-      .filter((record) => record.battery_power_kw !== undefined && record.soc !== undefined)
+    const socHoldMs = Number(options.socHoldMinutes || DEFAULT_CONFIG.socHoldMinutes) * 60 * 1000;
+    const sortedSocRows = socRows.sort((a, b) => a.epochMs - b.epochMs);
+    const batteryRecords = batteryPowerRows
+      .sort((a, b) => a.epochMs - b.epochMs)
+      .map((record) => {
+        const nearestSoc = findNearestSoc(record.epochMs, sortedSocRows, socHoldMs);
+        if (!nearestSoc) return null;
+        return {
+          time: record.time,
+          battery_power_kw: record.battery_power_kw,
+          soc: nearestSoc.soc,
+        };
+      })
+      .filter(Boolean)
       .sort((a, b) => a.time.localeCompare(b.time));
     if (batteryRecords.length > 0) {
       payloads.push({
@@ -158,6 +175,18 @@
     }
 
     return payloads;
+  }
+
+  function findNearestSoc(epochMs, socRows, maxDistanceMs) {
+    let best = null;
+    for (const row of socRows || []) {
+      const distance = Math.abs(row.epochMs - epochMs);
+      if (distance > maxDistanceMs) continue;
+      if (!best || distance < best.distance || (distance === best.distance && row.epochMs <= epochMs)) {
+        best = { row, distance };
+      }
+    }
+    return best ? best.row : null;
   }
 
   function buildAggregateWindow(rows, windowMinutes = DEFAULT_CONFIG.aggregateWindowMinutes) {
@@ -187,6 +216,7 @@
     buildAggregateWindow,
     buildMpcIngestPayloads,
     classifyTableName,
+    findNearestSoc,
     toChinaIsoTimestamp,
   };
 

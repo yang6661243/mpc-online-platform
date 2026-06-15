@@ -268,3 +268,87 @@ def test_build_dashboard_payload_filters_run_id_by_time_range_and_recomputes_com
         payload["comparison"]["mpc_cost_yuan"]
         == 220.0 * 0.25 + 220.0 * 39.0 * 0.25 / 24.0 / 30.0 + 80.0 * 0.25 * 0.05
     )
+
+
+def test_build_dashboard_payload_time_range_updates_current_and_comparison_without_run_id():
+    session = create_sqlite_memory_session()
+    _add_telemetry(session)
+    session.add(
+        Telemetry15Min(
+            plant_id="ecloud_factory",
+            start_time=parse_timestamp("2026-06-13T00:30:00+08:00"),
+            end_time=parse_timestamp("2026-06-13T00:45:00+08:00"),
+            grid_power_kw_avg=999.0,
+            grid_power_kw_max=999.0,
+            battery_power_kw_avg=0.0,
+            load_minus_pv_kw_avg=999.0,
+            soc_start=0.60,
+            soc_end=0.60,
+            grid_sample_count=15,
+            battery_sample_count=15,
+            quality_flag="ok",
+        )
+    )
+    session.add(
+        StrategyComparison(
+            run_id="selected_window_mpc",
+            plant_id="ecloud_factory",
+            actual_peak_kw=999.0,
+            mpc_peak_kw=888.0,
+            peak_reduction_kw=111.0,
+            peak_reduction_pct=11.11,
+            actual_cost_yuan=9999.0,
+            mpc_cost_yuan=8888.0,
+            cost_saving_yuan=1111.0,
+            cost_saving_pct=11.11,
+        )
+    )
+    session.add_all(
+        [
+            StrategyCurvePoint(
+                run_id="selected_window_mpc",
+                plant_id="ecloud_factory",
+                time=parse_timestamp("2026-06-13T00:00:00+08:00"),
+                actual_grid_power_kw=180.0,
+                actual_battery_power_kw=2.0,
+                actual_soc=0.5,
+                load_minus_pv_kw=182.0,
+                mpc_grid_power_kw=150.0,
+                mpc_battery_power_kw=32.0,
+                mpc_soc=0.51,
+                buy_price=1.0,
+                sell_price=0.0,
+            ),
+            StrategyCurvePoint(
+                run_id="selected_window_mpc",
+                plant_id="ecloud_factory",
+                time=parse_timestamp("2026-06-13T00:15:00+08:00"),
+                actual_grid_power_kw=210.0,
+                actual_battery_power_kw=0.1,
+                actual_soc=0.5,
+                load_minus_pv_kw=210.1,
+                mpc_grid_power_kw=160.0,
+                mpc_battery_power_kw=50.1,
+                mpc_soc=0.52,
+                buy_price=1.0,
+                sell_price=0.0,
+            ),
+        ]
+    )
+    session.commit()
+
+    payload = build_dashboard_payload(
+        session,
+        plant_id="ecloud_factory",
+        window_hours=24,
+        start_time="2026-06-12T16:00:00",
+        end_time="2026-06-12T16:15:00",
+    )
+
+    assert [point["time"] for point in payload["series"]] == ["2026-06-12T16:15:00"]
+    assert payload["current"]["time"] == "2026-06-12T16:15:00"
+    assert payload["current"]["grid_power_kw"] == 180.0
+    assert payload["comparison"]["run_id"] == "selected_window_mpc"
+    assert payload["comparison"]["actual_peak_kw"] == 180.0
+    assert payload["comparison"]["mpc_peak_kw"] == 150.0
+    assert payload["comparison"]["peak_reduction_kw"] == 30.0

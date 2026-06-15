@@ -237,6 +237,61 @@ def _comparison_payload_for_points(
     }
 
 
+def _comparison_payload_for_series(
+    *,
+    run_id: str,
+    series: list[dict],
+    c_deg: float = 0.05,
+    demand_rate: float = 39.0,
+    billing_days: float = 30.0,
+) -> dict | None:
+    comparable_points = [
+        point
+        for point in series
+        if point["actual_grid_power_kw"] is not None
+        and point["actual_battery_power_kw"] is not None
+        and point["actual_soc"] is not None
+        and point["mpc_grid_power_kw"] is not None
+        and point["mpc_battery_power_kw"] is not None
+        and point["mpc_soc"] is not None
+    ]
+    if not comparable_points:
+        return None
+
+    actual = compute_actual_strategy_metrics(
+        grid_power_kw=[float(point["actual_grid_power_kw"]) for point in comparable_points],
+        battery_power_kw=[float(point["actual_battery_power_kw"]) for point in comparable_points],
+        soc=[float(point["actual_soc"]) for point in comparable_points],
+        buy_price=[float(point["buy_price"] or 0.986) for point in comparable_points],
+        sell_price=[float(point["sell_price"] or 0.0) for point in comparable_points],
+        c_deg=c_deg,
+        demand_rate=demand_rate,
+        billing_days=billing_days,
+    )
+    mpc = compute_actual_strategy_metrics(
+        grid_power_kw=[float(point["mpc_grid_power_kw"]) for point in comparable_points],
+        battery_power_kw=[float(point["mpc_battery_power_kw"]) for point in comparable_points],
+        soc=[float(point["mpc_soc"]) for point in comparable_points],
+        buy_price=[float(point["buy_price"] or 0.986) for point in comparable_points],
+        sell_price=[float(point["sell_price"] or 0.0) for point in comparable_points],
+        c_deg=c_deg,
+        demand_rate=demand_rate,
+        billing_days=billing_days,
+    )
+    comparison = compare_strategy_metrics(actual, mpc)
+    return {
+        "run_id": run_id,
+        "actual_peak_kw": actual.peak_kw,
+        "mpc_peak_kw": mpc.peak_kw,
+        "peak_reduction_kw": comparison.peak_reduction_kw,
+        "peak_reduction_pct": comparison.peak_reduction_pct,
+        "actual_cost_yuan": actual.total_cost_yuan,
+        "mpc_cost_yuan": mpc.total_cost_yuan,
+        "cost_saving_yuan": comparison.cost_saving_yuan,
+        "cost_saving_pct": comparison.cost_saving_pct,
+    }
+
+
 def _dashboard_payload_for_run(
     session: Session,
     *,
@@ -302,17 +357,24 @@ def build_dashboard_payload(
     if not rows:
         raise HTTPException(status_code=404, detail="no telemetry found in selected time range")
     curve_by_time = _curve_points_by_time(session, comparison)
+    series = _series_payload(rows, curve_by_time)
+    selected_current = rows[-1]
+    selected_comparison = (
+        None
+        if comparison is None
+        else _comparison_payload_for_series(run_id=comparison.run_id, series=series)
+    )
 
     return {
         "plant_id": plant_id,
         "current": {
-            "time": latest.end_time.isoformat(),
-            "grid_power_kw": latest.grid_power_kw_avg,
-            "battery_power_kw": latest.battery_power_kw_avg,
-            "load_minus_pv_kw": latest.load_minus_pv_kw_avg,
-            "soc": latest.soc_end,
-            "quality_flag": latest.quality_flag,
+            "time": selected_current.end_time.isoformat(),
+            "grid_power_kw": selected_current.grid_power_kw_avg,
+            "battery_power_kw": selected_current.battery_power_kw_avg,
+            "load_minus_pv_kw": selected_current.load_minus_pv_kw_avg,
+            "soc": selected_current.soc_end,
+            "quality_flag": selected_current.quality_flag,
         },
-        "comparison": comparison_payload(comparison),
-        "series": _series_payload(rows, curve_by_time),
+        "comparison": selected_comparison,
+        "series": series,
     }

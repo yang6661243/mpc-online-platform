@@ -7,44 +7,54 @@
     endpointPath: "/api/business/point/pointDataShowList",
     endpointSuffix: "/business/point/pointDataShowList",
     intervalMs: 60 * 1000,
-    rollingWindowDays: 1,
+    rollingWindowMinutes: 10,
+    queryResultWaitMs: 1800,
     directApiPageSize: 2000,
+    knownStationPlantIds: {
+      "1188": "hehong_huajin",
+    },
     debug: true,
     requiredMetrics: [
       {
-        fullName: "计量电表/1352-总有功功率",
-        keywords: ["计量电表", "总有功功率"],
+        fullName: "计量电表/总有功功率",
+        role: "battery_power_kw",
+        aliases: [
+          ["计量电表", "总有功功率"],
+          ["计量电表", "有功功率pt"],
+          ["储能", "功率"],
+          ["电池", "功率"],
+        ],
       },
       {
-        fullName: "1-BMS/系统SOC",
-        keywords: ["1-BMS", "系统SOC"],
+        fullName: "3-BMS/BMS-系统SOC",
+        role: "soc",
+        aliases: [
+          ["系统soc"],
+          ["bms", "soc"],
+          ["储能", "soc"],
+          ["电池", "soc"],
+        ],
       },
       {
-        fullName: "防逆流电表-ADW300/ADW-总有功功率",
-        keywords: ["防逆流电表-ADW300", "总有功功率"],
+        fullName: "防逆流电表/ADW-总有功功率",
+        role: "grid_power_kw",
+        aliases: [
+          ["防逆流", "总有功功率"],
+          ["防逆流", "合相有功功率pt"],
+          ["adw", "总有功功率"],
+          ["电网", "功率"],
+        ],
       },
     ],
-    defaultQueryTemplate: {
-      url: "/business/point/pointDataShowList",
-      payload: {
-        stationId: 2289,
-        deviceIdList: [
-          { srcId: 432000083, cols: ["YC0014"], colNames: ["计量电表/1352-总有功功率"] },
-          { srcId: 432000001, cols: ["YC0004"], colNames: ["1-BMS/系统SOC"] },
-          { srcId: 432000084, cols: ["YC0014"], colNames: ["防逆流电表-ADW300/ADW-总有功功率"] },
-        ],
-        sampleTime: "1",
-        isOriginal: 0,
-        pageNum: 1,
-        pageSize: 2000,
-      },
-    },
   };
 
   let isCollecting = false;
   let collectIntervalId = null;
+  let staggerTimeoutIds = [];
   let floatingButton = null;
-  let observedQueryTemplate = null;
+  let isLearning = false;
+  let observedQueryTemplates = [];
+  let collectInFlightTemplateKeys = new Set();
   let isFirstCollect = true;
   let previousDataKeys = new Set();
   let dataCache = [];
@@ -117,9 +127,13 @@
     ].join("");
   }
 
+  function delay(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
   function getTimeRange() {
-    const end = new Date();
-    const start = new Date(end.getTime() - CONFIG.rollingWindowDays * 24 * 60 * 60 * 1000);
+    const end = new Date(Date.now() - 60 * 1000);
+    const start = new Date(end.getTime() - CONFIG.rollingWindowMinutes * 60 * 1000);
     return {
       start: formatDateTime(start),
       end: formatDateTime(end),
@@ -169,8 +183,10 @@
   }
 
   function metricMatches(metric, text) {
-    const normalized = normalizeText(text);
-    return metric.keywords.every((keyword) => normalized.includes(keyword));
+    const normalized = normalizeText(text).toLowerCase();
+    return (metric.aliases || []).some((keywords) =>
+      keywords.every((keyword) => normalized.includes(String(keyword).toLowerCase())),
+    );
   }
 
   function rowMatchesRequiredMetric(tableName) {
@@ -181,6 +197,17 @@
     const inputs = Array.from(document.querySelectorAll('input[placeholder="请选择指标"]'));
     const metricInput = inputs.find((input) => String(input.value || "").trim().length > 0) || inputs[0];
     return String(metricInput?.value || "");
+  }
+
+  function getSelectedStationText() {
+    const candidates = Array.from(document.querySelectorAll(".el-select input, input, .el-select__selected-item, .el-input__inner"));
+    const texts = candidates
+      .map((element) => normalizeText(element.value || element.textContent))
+      .filter((text) => text && text.length <= 80)
+      .filter((text) => !text.includes("请选择指标"))
+      .filter((text) => !text.includes("开始时间"))
+      .filter((text) => !text.includes("结束时间"));
+    return texts.find((text) => /MW|MWh|kW|储能|电站|华进|和宏|工厂/.test(text)) || texts[0] || "";
   }
 
   function getMissingRequiredMetrics(selectedText = getSelectedMetricText()) {
@@ -205,7 +232,7 @@
     return parts.join(",");
   }
 
-  function validateObservedTemplate(payload) {
+  function getTemplateValidation(payload) {
     if (!payload || typeof payload !== "object") {
       throw new Error("接口模板不是有效对象");
     }
@@ -217,12 +244,81 @@
     }
 
     const metricText = [getTemplateMetricText(payload), getSelectedMetricText()].filter(Boolean).join(",");
-    if (metricText) {
-      const missing = getMissingRequiredMetrics(metricText);
-      if (missing.length > 0) {
-        throw new Error(`缺少必需指标: ${missing.map((metric) => metric.fullName).join(", ")}`);
-      }
+    const missing = metricText ? getMissingRequiredMetrics(metricText) : [];
+    return {
+      metricText,
+      missingRequiredMetrics: missing.map((metric) => metric.fullName),
+    };
+  }
+
+  function validateObservedTemplate(payload) {
+    return getTemplateValidation(payload);
+  }
+
+  function sanitizePlantId(text, stationId) {
+    const known = CONFIG.knownStationPlantIds[String(stationId || "")];
+    if (known) return known;
+    if (String(text || "").includes("和宏") || String(text || "").includes("华进")) return "hehong_huajin";
+    return `ecloud_station_${String(stationId || "unknown").replace(/[^A-Za-z0-9_-]/g, "")}`;
+  }
+
+  function buildTemplateSummary(message, payload, validation) {
+    const stationId = String(payload.stationId);
+    const plantName = normalizeText(
+      payload.stationName ||
+      payload.name ||
+      payload.stationNameCn ||
+      payload.stationAlias ||
+      getSelectedStationText() ||
+      `eCloud电站${stationId}`,
+    );
+    return {
+      key: stationId,
+      stationId,
+      plantId: sanitizePlantId(plantName, stationId),
+      plantName,
+      url: message.url,
+      payload: cloneJson(payload, {}),
+      observedAt: new Date().toISOString(),
+      metricText: validation.metricText || "",
+      missingRequiredMetrics: validation.missingRequiredMetrics || [],
+    };
+  }
+
+  function upsertObservedQueryTemplate(template) {
+    const index = observedQueryTemplates.findIndex((item) => item.key === template.key);
+    if (index >= 0) {
+      observedQueryTemplates[index] = template;
+    } else {
+      observedQueryTemplates.push(template);
     }
+    return observedQueryTemplates.length;
+  }
+
+  function getDefaultObservedTemplate() {
+    return observedQueryTemplates[0] || null;
+  }
+
+  function summarizeTemplates() {
+    return observedQueryTemplates.map((template) => ({
+      stationId: template.stationId,
+      plantId: template.plantId,
+      plantName: template.plantName,
+      observedAt: template.observedAt,
+      missingRequiredMetrics: template.missingRequiredMetrics || [],
+    }));
+  }
+
+  function formatTemplateStatus() {
+    if (observedQueryTemplates.length === 0) return "未学习模板";
+    return observedQueryTemplates
+      .map((template, index) => `${index + 1}.${template.plantName || template.plantId}(${template.stationId})`)
+      .join("；");
+  }
+
+  function metricWarningText(template) {
+    const missing = template?.missingRequiredMetrics || [];
+    return missing.length > 0 ? `，缺少: ${missing.join(", ")}` : "";
   }
 
   function isPointDataShowListUrl(url) {
@@ -235,21 +331,20 @@
     }
 
     const payload = cloneJson(message.payload);
-    validateObservedTemplate(payload);
-    observedQueryTemplate = {
-      url: message.url,
-      payload,
-      observedAt: new Date().toISOString(),
-    };
+    const validation = validateObservedTemplate(payload);
+    const template = buildTemplateSummary(message, payload, validation);
+    const templateCount = upsertObservedQueryTemplate(template);
     setLastError("");
-    log("已记录eCloud接口查询模板");
-    return cloneJson(observedQueryTemplate);
+    log(`已记录eCloud接口查询模板: ${template.plantName} stationId=${template.stationId}，当前${templateCount}个模板${metricWarningText(template)}`);
+    return cloneJson(template);
   }
 
-  function buildObservedQueryPayload(timeRange = getTimeRange()) {
-    const queryTemplate = observedQueryTemplate || CONFIG.defaultQueryTemplate;
+  function buildObservedQueryPayload(timeRange = getTimeRange(), template = getDefaultObservedTemplate()) {
+    if (!template) {
+      throw new Error("未捕获eCloud查询模板，请先在页面选择正确模板并查询一次");
+    }
 
-    const payload = cloneJson(queryTemplate.payload, {});
+    const payload = cloneJson(template.payload, {});
     payload.beginTime = timeRange.start;
     payload.endTime = timeRange.end;
     payload.pageNum = 1;
@@ -305,7 +400,7 @@
     };
   }
 
-  function normalizePointDataShowListRows(apiData, timestamp = new Date().toISOString()) {
+  function normalizePointDataShowListRows(apiData, timestamp = new Date().toISOString(), template = null) {
     const rows = [];
     const cards = Array.isArray(apiData) ? apiData : [];
 
@@ -317,12 +412,18 @@
         const value = item.digital0 ?? item.row_digital0 ?? item.value ?? "";
         if (!tableName || !date || value === "") return;
         if (!rowMatchesRequiredMetric(tableName)) return;
-        rows.push({
+        const row = {
           tableName,
           date,
           value: String(value),
           timestamp,
-        });
+        };
+        if (template) {
+          row.stationId = template.stationId;
+          row.plantId = template.plantId;
+          row.plantName = template.plantName;
+        }
+        rows.push(row);
       });
     });
     return rows;
@@ -331,7 +432,7 @@
   function dedupeRows(rows) {
     const newRows = [];
     (rows || []).forEach((row) => {
-      const key = `${row.tableName}:${row.date}`;
+      const key = `${row.stationId || row.plantId || "default"}:${row.tableName}:${row.date}`;
       if (previousDataKeys.has(key)) return;
       previousDataKeys.add(key);
       newRows.push(row);
@@ -372,8 +473,8 @@
     }
   }
 
-  async function queryPointDataShowList() {
-    const payload = buildObservedQueryPayload();
+  async function queryPointDataShowList(timeRange = getTimeRange(), template = getDefaultObservedTemplate()) {
+    const payload = buildObservedQueryPayload(timeRange, template);
     const headers = {
       Accept: "application/json",
       "Content-Type": "application/json",
@@ -405,7 +506,7 @@
     if (body.code !== undefined && body.code !== 200) {
       throw new Error(`eCloud接口业务失败 ${body.code}: ${body.msg || body.message || ""}`);
     }
-    return normalizePointDataShowListRows(body.data);
+    return normalizePointDataShowListRows(body.data, new Date().toISOString(), template);
   }
 
   function saveCollectedRows(rows, diagnostic = null) {
@@ -457,14 +558,19 @@
     return true;
   }
 
-  async function collectData() {
+  async function collectTemplate(template, timeRange = getTimeRange()) {
+    if (!template) {
+      log("没有可用模板，跳过采集");
+      return false;
+    }
+    if (collectInFlightTemplateKeys.has(template.key)) {
+      log(`${template.plantName || template.plantId} 上一轮采集尚未结束，跳过本轮`);
+      return false;
+    }
+    collectInFlightTemplateKeys.add(template.key);
     try {
-      if (!observedQueryTemplate) {
-        log("未捕获页面模板，使用默认eCloud点位模板");
-      }
-
-      log("开始通过eCloud接口采集最近1天数据");
-      const rows = await queryPointDataShowList();
+      log(`采集 ${template.plantName || template.plantId} 最近${CONFIG.rollingWindowMinutes}分钟数据`);
+      const rows = await queryPointDataShowList(timeRange, template);
       const newRows = dedupeRows(rows);
       lastCollectAt = new Date().toISOString();
       const diagnostic = buildCollectionDiagnostic(rows, newRows);
@@ -479,7 +585,48 @@
       setLastError(message);
       log(`数据采集失败: ${message}`);
       return false;
+    } finally {
+      collectInFlightTemplateKeys.delete(template.key);
     }
+  }
+
+  async function collectData() {
+    const template = getDefaultObservedTemplate();
+    if (!template) {
+      log("未学习eCloud接口模板，请点击开始学习并手动查询两个电站");
+      return false;
+    }
+    return collectTemplate(template);
+  }
+
+  function clearStaggerTimers() {
+    if (collectIntervalId) {
+      clearInterval(collectIntervalId);
+      collectIntervalId = null;
+    }
+    staggerTimeoutIds.forEach((id) => clearTimeout(id));
+    staggerTimeoutIds = [];
+  }
+
+  function runStaggeredCollectionCycle() {
+    const templates = observedQueryTemplates.slice();
+    if (templates.length === 0) {
+      log("没有学习到模板，无法定时采集");
+      return false;
+    }
+    staggerTimeoutIds.forEach((id) => clearTimeout(id));
+    staggerTimeoutIds = [];
+    const spacingMs = templates.length > 1 ? Math.floor(CONFIG.intervalMs / templates.length) : 0;
+    templates.forEach((template, index) => {
+      const delayMs = index * spacingMs;
+      const timeoutId = setTimeout(() => {
+        if (!isCollecting) return;
+        collectTemplate(template);
+      }, delayMs);
+      staggerTimeoutIds.push(timeoutId);
+    });
+    log(`已安排${templates.length}个电站错峰采集，间隔约${Math.round(spacingMs / 1000)}秒`);
+    return true;
   }
 
   function updateButtonState() {
@@ -492,6 +639,10 @@
       btnMain.classList.add("collecting");
       btnMain.title = "停止采集";
       btnText.textContent = "停止采集";
+    } else if (isLearning) {
+      btnMain.classList.add("collecting");
+      btnMain.title = "停止学习";
+      btnText.textContent = "停止学习";
     } else {
       btnMain.classList.remove("collecting");
       btnMain.title = "开始采集";
@@ -504,11 +655,15 @@
       log("采集已在运行中");
       return;
     }
+    if (observedQueryTemplates.length === 0) {
+      log("请先点击开始学习，分别查询需要采集的电站，再停止学习后启动采集");
+      return;
+    }
     isCollecting = true;
     updateButtonState();
-    log("开始定时采集");
-    collectData();
-    collectIntervalId = setInterval(collectData, CONFIG.intervalMs);
+    log(`开始定时采集: ${formatTemplateStatus()}`);
+    runStaggeredCollectionCycle();
+    collectIntervalId = setInterval(runStaggeredCollectionCycle, CONFIG.intervalMs);
   }
 
   function stopCollection() {
@@ -517,12 +672,25 @@
       return;
     }
     isCollecting = false;
-    if (collectIntervalId) {
-      clearInterval(collectIntervalId);
-      collectIntervalId = null;
-    }
+    clearStaggerTimers();
     updateButtonState();
     log("已停止采集");
+  }
+
+  function startLearning() {
+    stopCollection();
+    isLearning = true;
+    observedQueryTemplates = [];
+    previousDataKeys.clear();
+    setLastError("");
+    updateButtonState();
+    log("开始学习：请分别操作每个电站选择变量并查询，完成后点击停止学习");
+  }
+
+  function stopLearning() {
+    isLearning = false;
+    updateButtonState();
+    log(`停止学习，已学习${observedQueryTemplates.length}个模板: ${formatTemplateStatus()}`);
   }
 
   function injectPageHook() {
@@ -543,14 +711,15 @@
     if (data.type !== "ECLOUD_POINT_QUERY_CAPTURED") return;
 
     try {
-      observeEcloudQueryTemplate(data);
-      if (isCollecting) {
-        collectData();
+      if (isLearning || observedQueryTemplates.length === 0) {
+        observeEcloudQueryTemplate(data);
+      } else {
+        log("捕获到页面查询，但当前不在学习模式，保留已有模板");
       }
     } catch (error) {
       const message = error && error.message ? error.message : String(error);
       setLastError("");
-      log(`页面查询模板不完整，继续使用默认点位模板: ${message}`);
+      log(`页面查询模板不完整: ${message}`);
     }
   }
 
@@ -606,7 +775,9 @@
     `;
     document.body.appendChild(floatingButton);
     floatingButton.querySelector(".ecloud-btn-main")?.addEventListener("click", () => {
-      if (isCollecting) {
+      if (isLearning) {
+        stopLearning();
+      } else if (isCollecting) {
         stopCollection();
       } else {
         startCollection();
@@ -734,6 +905,34 @@
     return startValue.length > 0 && endValue.length > 0;
   }
 
+  function isVisibleElement(element) {
+    if (!element) return false;
+    if (element.disabled) return false;
+    if (typeof element.getBoundingClientRect !== "function") return true;
+    const rect = element.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0;
+  }
+
+  function findVisibleQueryButton() {
+    const buttons = Array.from(document.querySelectorAll("button, .el-button"));
+    return buttons.find((button) => {
+      if (!isVisibleElement(button)) return false;
+      const text = normalizeText(button.textContent);
+      if (!text) return false;
+      if (text.includes("重置") || text.includes("导出") || text.includes("原始值")) return false;
+      return text.includes("查询") || text.includes("搜索");
+    }) || null;
+  }
+
+  async function fillRecentTimeRangeAndClickQuery(timeRange = getTimeRange()) {
+    const filled = await fillVisibleTimeRangeInputs(timeRange);
+    if (!filled) return false;
+    const queryButton = findVisibleQueryButton();
+    if (!queryButton) return false;
+    queryButton.click();
+    return true;
+  }
+
   function hasValidVisibleTimeRange() {
     const picker = document.querySelector(".el-date-editor--datetimerange");
     if (!picker) return false;
@@ -766,11 +965,24 @@
         sendResponse({ success: true });
         return false;
       }
+      if (request.action === "startLearning") {
+        startLearning();
+        sendResponse({ success: true });
+        return false;
+      }
+      if (request.action === "stopLearning") {
+        stopLearning();
+        sendResponse({ success: true });
+        return false;
+      }
       if (request.action === "getStatus") {
         sendResponse({
           isCollecting,
+          isLearning,
           dataCount: dataCache.reduce((sum, batch) => sum + batch.dataCount, 0),
-          hasQueryTemplate: Boolean(observedQueryTemplate),
+          hasQueryTemplate: observedQueryTemplates.length > 0,
+          templateCount: observedQueryTemplates.length,
+          templates: summarizeTemplates(),
           lastStatus,
           lastError,
           lastCollectAt,
@@ -785,6 +997,9 @@
         previousDataKeys.clear();
         dataCache = [];
         isFirstCollect = true;
+        observedQueryTemplates = [];
+        isLearning = false;
+        stopCollection();
         setLastError("");
         log("已清空本地采集缓存");
         sendResponse({ success: true });
@@ -803,13 +1018,18 @@
       collectData,
       dedupeRows,
       extractDataFromTables,
+      fillRecentTimeRangeAndClickQuery,
       fillVisibleTimeRangeInputs,
+      findVisibleQueryButton,
+      formatTemplateStatus,
       getMissingRequiredMetrics,
       getTimeRange,
       hasValidVisibleTimeRange,
       normalizePointDataShowListRows,
       observeEcloudQueryTemplate,
       rowMatchesRequiredMetric,
+      summarizeTemplates,
+      buildTemplateSummary,
     };
   }
 

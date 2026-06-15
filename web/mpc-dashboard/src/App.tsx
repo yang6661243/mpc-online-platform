@@ -1,13 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { fetchDashboard } from "./api";
+import { fetchDashboard, toApiTime } from "./api";
 import { DetailTable } from "./components/DetailTable";
 import { MetricCard } from "./components/MetricCard";
 import { PowerChart } from "./components/PowerChart";
 import { RevenueChart } from "./components/RevenueChart";
-import { StatusBar } from "./components/StatusBar";
-import { StrategyCard } from "./components/StrategyCard";
 import { formatKw, formatPercent, formatSoc, formatYuan } from "./format";
-import { STRATEGY_GRID_TEMPLATE_COLUMNS } from "./layout";
 import { dashboardStatus } from "./status";
 import { formatChinaTime, formatDataDelay } from "./time";
 import type { DashboardResponse } from "./types";
@@ -31,12 +28,6 @@ function queryValue(name: string): string {
   return params.get(name) || "";
 }
 
-function toApiTime(value: string): string | undefined {
-  if (!value) return undefined;
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toISOString();
-}
-
 function toDateTimeLocalValue(value: string): string {
   if (!value) return "";
   const date = new Date(value);
@@ -45,9 +36,19 @@ function toDateTimeLocalValue(value: string): string {
   return local.toISOString().slice(0, 16);
 }
 
+function monthRange(year: number, month: number): { start: string; end: string } {
+  const start = new Date(year, month - 1, 1, 0, 0, 0);
+  const nextMonthStart = new Date(year, month, 1, 0, 0, 0);
+  const end = new Date(nextMonthStart.getTime() - 60_000);
+  return {
+    start: toDateTimeLocalValue(start.toISOString()),
+    end: toDateTimeLocalValue(end.toISOString()),
+  };
+}
+
 export default function App() {
-  const [plantId, setPlantId] = useState(plantFromQuery);
-  const [runId, setRunId] = useState(runFromQuery);
+  const [plantId] = useState(plantFromQuery);
+  const [runId] = useState(runFromQuery);
   const [windowHours, setWindowHours] = useState(24);
   const [rangeStart, setRangeStart] = useState(() => toDateTimeLocalValue(queryValue("start_time")));
   const [rangeEnd, setRangeEnd] = useState(() => toDateTimeLocalValue(queryValue("end_time")));
@@ -98,77 +99,34 @@ export default function App() {
   const latestTime = data ? formatChinaTime(data.current.time) : "--";
   const targetPeak = comparison?.mpc_peak_kw ?? comparison?.actual_peak_kw;
   const latestMpcPoint = data?.series
-      .slice()
-      .reverse()
-      .find((point) => point.mpc_soc !== null || point.mpc_battery_power_kw !== null);
+    .slice()
+    .reverse()
+    .find((point) => point.mpc_soc !== null || point.mpc_battery_power_kw !== null);
   const targetSoc = latestMpcPoint?.mpc_soc ?? data?.current.soc;
+  const selectedMonth = useMemo(() => {
+    const match = rangeStart.match(/^(\d{4})-(\d{2})-/);
+    return match ? String(Number(match[2])) : "";
+  }, [rangeStart]);
+
+  function selectMonth(month: number) {
+    const range = monthRange(2026, month);
+    setRangeStart(range.start);
+    setRangeEnd(range.end);
+  }
+
+  function selectRealtime() {
+    setRangeStart("");
+    setRangeEnd("");
+    setWindowHours(24);
+  }
 
   return (
     <main className="app-shell">
       <header className="topbar">
-        <div className="topbar-time">
-          <span>当前数据</span>
-          <strong>{latestTime}</strong>
-        </div>
-        <h1>和宏华进 MPC 实时演示系统</h1>
-        <div className="toolbar">
-          <label>
-            工厂
-            <input value={plantId} onChange={(event) => setPlantId(event.target.value)} />
-          </label>
-          <label>
-            运行ID
-            <input value={runId} onChange={(event) => setRunId(event.target.value)} placeholder="可选" />
-          </label>
-          <label>
-            窗口
-            <select value={windowHours} onChange={(event) => setWindowHours(Number(event.target.value))}>
-              <option value={24}>最近24小时</option>
-              <option value={48}>最近48小时</option>
-              <option value={168}>最近7天</option>
-            </select>
-          </label>
-          <label>
-            起始
-            <input
-              className="time-input"
-              type="datetime-local"
-              value={rangeStart}
-              onChange={(event) => setRangeStart(event.target.value)}
-            />
-          </label>
-          <label>
-            结束
-            <input
-              className="time-input"
-              type="datetime-local"
-              value={rangeEnd}
-              onChange={(event) => setRangeEnd(event.target.value)}
-            />
-          </label>
-          <button
-            type="button"
-            onClick={() => {
-              setRangeStart("");
-              setRangeEnd("");
-            }}
-          >
-            清除时间段
-          </button>
-          <button type="button" onClick={() => setRefreshCount((value) => value + 1)}>
-            刷新
-          </button>
-          <span className="refresh-meta">
-            自动刷新 60秒{lastLoadedAt ? ` · ${formatChinaTime(lastLoadedAt.toISOString())}` : ""}
-          </span>
-        </div>
+        <h1>则鸣 EMS 实时演示系统</h1>
       </header>
 
       <section className="content">
-        {loading && <StatusBar label="数据加载中" tone="pending" />}
-        {error && <StatusBar label={`暂无实时数据：${error}`} tone="error" />}
-        {status && <StatusBar label={status.label} tone={status.tone} />}
-
         <section className="dashboard-grid">
           <aside className="stat-sidebar">
             <div className="section-title">
@@ -180,55 +138,56 @@ export default function App() {
               <MetricCard label="当前储能功率" value={formatKw(data?.current.battery_power_kw)} sub="储能计量表聚合值" />
               <MetricCard label="当前 SOC" value={formatSoc(data?.current.soc)} sub="BMS 系统 SOC" />
               <MetricCard label="数据延迟" value={dataDelay} sub="按北京时间计算" />
-              <MetricCard label="工厂最大需量" value={formatKw(comparison?.actual_peak_kw)} sub="当前策略" />
-              <MetricCard label="MPC 最大需量" value={formatKw(comparison?.mpc_peak_kw)} sub="优化策略" />
-              <MetricCard
-                label="削峰量"
-                value={formatKw(comparison?.peak_reduction_kw)}
-                sub={formatPercent(comparison?.peak_reduction_pct)}
-              />
-              <MetricCard
-                label="预计节省"
-                value={formatYuan(comparison?.cost_saving_yuan)}
-                sub={formatPercent(comparison?.cost_saving_pct)}
-              />
             </div>
+            <div className="reserved-sidebar-space" aria-hidden="true" />
           </aside>
 
           <section className="center-stage">
-            <section className="strategy-compare-grid" style={{ gridTemplateColumns: STRATEGY_GRID_TEMPLATE_COLUMNS }}>
-              <StrategyCard
-                title="工厂策略"
-                subtitle="现场原策略执行曲线，来自真实工厂策略数据"
-                strategy="factory"
-                badge="REAL"
-                series={data?.series || []}
-                peakKw={comparison?.actual_peak_kw}
-                costYuan={comparison?.actual_cost_yuan}
-                soc={data?.current.soc}
-                batteryKw={data?.current.battery_power_kw}
-              />
-              <StrategyCard
-                title="MPC 策略"
-                subtitle="离线 MPC 回放结果，同时间段逐点对比"
-                strategy="mpc"
-                badge="MPC"
-                series={data?.series || []}
-                peakKw={comparison?.mpc_peak_kw}
-                costYuan={comparison?.mpc_cost_yuan}
-                soc={targetSoc}
-                batteryKw={latestMpcPoint?.mpc_battery_power_kw}
-                savingYuan={comparison?.cost_saving_yuan}
-              />
+            <section className="overview-panel">
+              <div className="month-selector" aria-label="时间段选择">
+                {[4, 5, 6].map((month) => (
+                  <button
+                    key={month}
+                    type="button"
+                    className={selectedMonth === String(month) ? "active" : ""}
+                    onClick={() => selectMonth(month)}
+                  >
+                    {month}月
+                  </button>
+                ))}
+                <button type="button" className={!rangeStart && !rangeEnd ? "active" : ""} onClick={selectRealtime}>
+                  实时
+                </button>
+              </div>
+              <div className="overview-grid">
+                <div>
+                  <span>工厂最大需量</span>
+                  <strong>{formatKw(comparison?.actual_peak_kw)}</strong>
+                </div>
+                <div>
+                  <span>MPC 最大需量</span>
+                  <strong>{formatKw(comparison?.mpc_peak_kw)}</strong>
+                </div>
+                <div>
+                  <span>削峰量</span>
+                  <strong>{formatKw(comparison?.peak_reduction_kw)}</strong>
+                  <small>{formatPercent(comparison?.peak_reduction_pct)}</small>
+                </div>
+                <div>
+                  <span>预计节省</span>
+                  <strong>{formatYuan(comparison?.cost_saving_yuan)}</strong>
+                  <small>{formatPercent(comparison?.cost_saving_pct)}</small>
+                </div>
+              </div>
             </section>
 
             <article className="panel power-panel">
               <div className="panel-head">
                 <div>
-                  <span className="panel-kicker">功率对比</span>
-                  <h2>工厂与 MPC 电网功率对比</h2>
+                  <span className="panel-kicker">策略曲线</span>
+                  <h2>工厂策略与 MPC 策略对比</h2>
                 </div>
-                <p>直接观察削峰、反送和策略偏差</p>
+                <p>实线为工厂策略，虚线为 MPC 策略；默认展示电网功率，可在图例切换负荷、光伏、储能和 SOC</p>
               </div>
               <PowerChart series={data?.series || []} />
             </article>
@@ -259,7 +218,11 @@ export default function App() {
           <aside className="status-rail">
             <div className="rail-card rail-highlight">
               <span>MPC 状态</span>
-              <strong>{status?.label || "等待数据"}</strong>
+              <strong>{loading ? "数据加载中" : error ? "数据异常" : status?.label || "等待数据"}</strong>
+            </div>
+            <div className="rail-card">
+              <span>当前数据</span>
+              <strong>{latestTime}</strong>
             </div>
             <div className="rail-card">
               <span>数据质量</span>
@@ -276,6 +239,10 @@ export default function App() {
             <div className="rail-card">
               <span>电站 ID</span>
               <strong>{data?.plant_id || plantId}</strong>
+            </div>
+            <div className="rail-card">
+              <span>刷新时间</span>
+              <strong>{lastLoadedAt ? formatChinaTime(lastLoadedAt.toISOString()) : "--"}</strong>
             </div>
           </aside>
         </section>

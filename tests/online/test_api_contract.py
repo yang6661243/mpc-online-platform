@@ -219,7 +219,7 @@ def test_data_health_endpoint_reports_mpc_ready_when_required_streams_are_fresh(
     assert body["latest_raw"]["battery"]["soc"] == 0.58
     assert body["latest_telemetry"]["end_time"] == "2026-06-12T02:15:00"
     assert body["latest_telemetry"]["quality_flag"] == "ok"
-    assert body["latest_telemetry"]["load_minus_pv_kw_avg"] == 435.0
+    assert round(body["latest_telemetry"]["load_minus_pv_kw_avg"], 6) == round(440.0, 6)
 
 
 def test_data_health_endpoint_reports_missing_battery_as_not_ready():
@@ -359,9 +359,9 @@ def test_aggregate_endpoint_builds_dashboard_telemetry_from_raw_records():
     }
 
     dashboard = client.get("/api/v1/plants/aodelai/dashboard").json()
-    assert dashboard["current"]["grid_power_kw"] == 410.0
-    assert dashboard["current"]["battery_power_kw"] == 25.0
-    assert dashboard["current"]["load_minus_pv_kw"] == 435.0
+    assert round(dashboard["current"]["grid_power_kw"], 6) == round((400.0 * 5 + 420.0 * 10) / 15, 6)
+    assert round(dashboard["current"]["battery_power_kw"], 6) == round((20.0 * 5 + 30.0 * 10) / 15, 6)
+    assert round(dashboard["current"]["load_minus_pv_kw"], 6) == round(440.0, 6)
     assert dashboard["current"]["soc"] == 0.58
 
 

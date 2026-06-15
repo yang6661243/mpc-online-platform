@@ -85,9 +85,9 @@ function loadContentWithDocument(document) {
 }
 
 test("extractDataFromTables reads current eCloud metric sections without el-card classes", () => {
-  const soc = makeMetricSection("1-BMS/系统SOC", [["2026-06-13 00:20:00.01", 11]]);
-  const battery = makeMetricSection("计量电表/1352-总有功功率", [["2026-06-13 00:20:00.01", 50.6]]);
-  const grid = makeMetricSection("防逆流电表-ADW300/ADW-总有功功率", [["2026-06-13 00:20:00.01", 85.6]]);
+  const soc = makeMetricSection("3-BMS/BMS-系统SOC", [["2026-06-13 00:20:00.01", 11]]);
+  const battery = makeMetricSection("计量电表/总有功功率", [["2026-06-13 00:20:00.01", 50.6]]);
+  const grid = makeMetricSection("防逆流电表/ADW-总有功功率", [["2026-06-13 00:20:00.01", 85.6]]);
   const tableBodies = [soc.tableBody, battery.tableBody, grid.tableBody];
 
   const document = {
@@ -114,9 +114,9 @@ test("extractDataFromTables reads current eCloud metric sections without el-card
   assert.deepEqual(
     normalizedRows,
     [
-      ["1-BMS/系统SOC", "2026-06-13 00:20:00.01", "11"],
-      ["计量电表/1352-总有功功率", "2026-06-13 00:20:00.01", "50.6"],
-      ["防逆流电表-ADW300/ADW-总有功功率", "2026-06-13 00:20:00.01", "85.6"],
+      ["3-BMS/BMS-系统SOC", "2026-06-13 00:20:00.01", "11"],
+      ["计量电表/总有功功率", "2026-06-13 00:20:00.01", "50.6"],
+      ["防逆流电表/ADW-总有功功率", "2026-06-13 00:20:00.01", "85.6"],
     ],
   );
 });

@@ -90,6 +90,23 @@ test("does not create battery payload when SOC is missing", () => {
   assert.equal(payloads.some((payload) => payload.data_type === "battery"), false);
 });
 
+test("reuses nearest SOC when battery power updates more frequently than SOC", () => {
+  const payloads = buildMpcIngestPayloads(
+    [
+      { tableName: "3-BMS/BMS-系统SOC", date: "2026-06-15 10:00:00", value: "80" },
+      { tableName: "计量电表/总有功功率", date: "2026-06-15 10:03:00", value: "105" },
+      { tableName: "计量电表/总有功功率", date: "2026-06-15 10:06:00", value: "106" },
+    ],
+    { plantId: "hehong_huajin", generatedAt: "2026-06-15T10:06:30+08:00" },
+  );
+
+  const batteryPayload = payloads.find((payload) => payload.data_type === "battery");
+  assert.deepEqual(batteryPayload.records, [
+    { time: "2026-06-15T10:03:00+08:00", battery_power_kw: 105, soc: 80 },
+    { time: "2026-06-15T10:06:00+08:00", battery_power_kw: 106, soc: 80 },
+  ]);
+});
+
 test("formats local eCloud timestamp as China ISO timestamp", () => {
   assert.equal(toChinaIsoTimestamp("2026-06-12 10:15:00"), "2026-06-12T10:15:00+08:00");
 });
@@ -99,7 +116,28 @@ test("classifies default eCloud table names", () => {
   assert.equal(classifyTableName("计量电表/总有功功率"), "battery_power_kw");
   assert.equal(classifyTableName("储能功率"), "battery_power_kw");
   assert.equal(classifyTableName("储能SOC"), "soc");
+  assert.equal(classifyTableName("防逆流电表-666/666-合相有功功率Pt"), "grid_power_kw");
+  assert.equal(classifyTableName("计量电表-1352/1352-总有功功率"), "battery_power_kw");
+  assert.equal(classifyTableName("4-BMS/系统SOC"), "soc");
   assert.equal(classifyTableName("无关指标"), null);
+});
+
+test("builds payloads from alternate station metric names", () => {
+  const payloads = buildMpcIngestPayloads(
+    [
+      { tableName: "防逆流电表-666/666-合相有功功率Pt", date: "2026-06-15 15:00:00", value: "890.1" },
+      { tableName: "计量电表-1352/1352-总有功功率", date: "2026-06-15 15:00:00", value: "305.2" },
+      { tableName: "4-BMS/系统SOC", date: "2026-06-15 15:00:00", value: "15.8" },
+    ],
+    { plantId: "aolai", generatedAt: "2026-06-15T15:01:00+08:00" },
+  );
+
+  assert.deepEqual(payloads.find((payload) => payload.data_type === "grid_meter").records, [
+    { time: "2026-06-15T15:00:00+08:00", grid_power_kw: 890.1 },
+  ]);
+  assert.deepEqual(payloads.find((payload) => payload.data_type === "battery").records, [
+    { time: "2026-06-15T15:00:00+08:00", battery_power_kw: 305.2, soc: 15.8 },
+  ]);
 });
 
 test("builds aggregate window aligned to 15 minute boundaries", () => {

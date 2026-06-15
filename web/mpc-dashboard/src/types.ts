@@ -49,3 +49,28 @@ export interface DashboardResponse {
   comparison: StrategyComparison | null;
   series: DashboardSeriesPoint[];
 }
+
+export interface RunMpcRequest {
+  request_id: string;
+  plant_id: string;
+  start_time: string;
+  end_time: string;
+  profile?: string;
+  buy_price?: number;
+  sell_price?: number;
+  c_deg?: number;
+  demand_rate?: number;
+  billing_days?: number;
+  target_peak_kw?: number;
+}
+
+export interface RunMpcResponse {
+  success: boolean;
+  run_id: string;
+  plant_id: string;
+  status: string;
+  target_peak_kw: number | null;
+  scenario_path: string;
+  comparison: StrategyComparison | null;
+  message: string;
+}

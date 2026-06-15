@@ -45,14 +45,34 @@ const sampleSeries: DashboardSeriesPoint[] = [
 ];
 
 describe("chart option builders", () => {
-  it("maps actual and MPC grid power into the power chart", () => {
+  it("maps factory and MPC strategy curves into one comparable power chart", () => {
     const option = buildPowerChartOption(sampleSeries);
 
-    expect(option.legend).toEqual({ top: 4, data: ["工厂当前策略", "MPC 策略"] });
+    expect(option.legend.data).toEqual([
+      "工厂电网功率",
+      "MPC电网功率",
+      "工厂负荷功率",
+      "MPC负荷功率",
+      "工厂光伏出力",
+      "MPC光伏出力",
+      "工厂储能功率",
+      "MPC储能功率",
+      "工厂SOC",
+      "MPCSOC",
+    ]);
+    expect(option.legend.selected).toMatchObject({
+      工厂电网功率: true,
+      MPC电网功率: true,
+      工厂负荷功率: false,
+      MPC负荷功率: false,
+    });
     expect(option.xAxis).toMatchObject({ data: ["06-13 12:15", "06-13 12:30"] });
-    expect(option.series).toMatchObject([
-      { name: "工厂当前策略", data: [216.2, 220.4] },
-      { name: "MPC 策略", data: [190.1, null] },
+    expect(option.series).toHaveLength(10);
+    expect(option.series.slice(0, 4)).toMatchObject([
+      { name: "工厂电网功率", data: [216.2, 220.4], lineStyle: { type: "solid" } },
+      { name: "MPC电网功率", data: [190.1, null], lineStyle: { type: "dashed" } },
+      { name: "工厂负荷功率", data: [260.2, 280.4], lineStyle: { type: "solid" } },
+      { name: "MPC负荷功率", data: [258, null], lineStyle: { type: "dashed" } },
     ]);
   });
 

@@ -26,11 +26,13 @@ from microgrid_online.mpc_cli_runner import (
     MicrogridMpcCliRunnerConfig,
 )
 from microgrid_online.mpc_run import MpcRunner, MpcRunnerNotConfigured, run_online_mpc
+from microgrid_online.plant_config import load_plant_config, plant_config_to_mpc_cli_config
 from microgrid_online.signature import verify_signature
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DASHBOARD_DIST_DIR = PROJECT_ROOT / "web" / "mpc-dashboard" / "dist"
+DEFAULT_PLANT_CONFIG_PATH = PROJECT_ROOT / "configs" / "plants" / "hehong_huajin.yaml"
 
 DEFAULT_CORS_ORIGINS = [
     "https://ecloud.hoenergypower.cn",
@@ -72,6 +74,8 @@ class AggregateRequest(BaseModel):
     start_time: str
     end_time: str
     window_minutes: int = 15
+    resample_minutes: int = 1
+    max_staleness_minutes: int = 10
     battery_power_mode: str | None = None
 
 
@@ -91,6 +95,24 @@ def normalize_plant_id(plant_id: str) -> str:
     return PLANT_ID_ALIASES.get(plant_id, plant_id)
 
 
+def _resolve_plant_config_path(plant_config_path: str | Path | None) -> Path:
+    configured = plant_config_path or os.getenv("MPC_PLANT_CONFIG_PATH") or DEFAULT_PLANT_CONFIG_PATH
+    path = Path(configured)
+    if not path.is_absolute():
+        path = PROJECT_ROOT / path
+    return path
+
+
+def _default_mpc_runner_config(
+    *,
+    plant_config_path: str | Path | None,
+    project_root: str | Path | None,
+) -> MicrogridMpcCliRunnerConfig:
+    root = Path(project_root or PROJECT_ROOT)
+    plant = load_plant_config(_resolve_plant_config_path(plant_config_path))
+    return plant_config_to_mpc_cli_config(plant, project_root=root)
+
+
 def create_app(
     session_factory: Callable[[], Session] | None = None,
     *,
@@ -99,6 +121,7 @@ def create_app(
     mpc_command_runner: CommandRunner | None = None,
     mpc_runner_project_root: str | Path | None = None,
     mpc_runner_config: MicrogridMpcCliRunnerConfig | None = None,
+    plant_config_path: str | Path | None = None,
     run_output_dir: str | Path = "outputs/online_mpc_runs",
     input_signature_secret: str | None = None,
     dashboard_dist_dir: str | Path | None = None,
@@ -115,7 +138,8 @@ def create_app(
     if mpc_runner is None and enable_default_mpc_runner:
         app.state.mpc_runner = MicrogridMpcCliRunner(
             mpc_runner_config
-            or MicrogridMpcCliRunnerConfig(
+            or _default_mpc_runner_config(
+                plant_config_path=plant_config_path,
                 project_root=mpc_runner_project_root or PROJECT_ROOT,
             ),
             command_runner=mpc_command_runner,
@@ -266,6 +290,8 @@ def create_app(
                 start_time=payload.start_time,
                 end_time=payload.end_time,
                 window_minutes=payload.window_minutes,
+                resample_minutes=payload.resample_minutes,
+                max_staleness_minutes=payload.max_staleness_minutes,
                 battery_power_mode=payload.battery_power_mode
                 or os.getenv("MPC_BATTERY_POWER_MODE", "signed_meter"),
             )
