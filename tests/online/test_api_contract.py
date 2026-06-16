@@ -472,3 +472,60 @@ def test_display_series_endpoint_rejects_unsupported_window():
 
     assert response.status_code == 400
     assert response.json()["detail"] == "window_hours must be one of 2, 6, or 24"
+
+
+def test_import_mpc_run_endpoint_parses_excel_and_returns_run_id():
+    import openpyxl
+    from io import BytesIO
+
+    session = create_sqlite_memory_session()
+    client = TestClient(create_app(session_factory=lambda: session))
+
+    # 构造一个最小 Excel
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "15min_trajectory"
+    ws.append(["时间", "光伏出力(kW)", "风电出力(kW)", "负荷功率(kW)", "SOC", "电池功率(kW)", "电网功率(kW)", "购电价(元/kWh)", "售电价(元/kWh)"])
+    ws.append(["2026-06-01 00:00:00", 0, 0, 100, 0.5, -50, 150, 0.8, 0.3])
+    ws.append(["2026-06-01 00:15:00", 0, 0, 110, 0.52, -45, 155, 0.8, 0.3])
+
+    buf = BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    response = client.post(
+        "/api/v1/plants/hehong_huajin/import-mpc-run?profile=test_import",
+        files={"file": ("test.xlsx", buf.read(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["success"] is True
+    assert body["plant_id"] == "hehong_huajin"
+    assert body["profile"] == "6月-test_import"  # 自动检测月份前缀
+    assert body["point_count"] == 2
+    assert "run_id" in body
+
+    # 验证导入后 dashboard 可以查询
+    run_id = body["run_id"]
+    dash = client.get(f"/api/v1/plants/hehong_huajin/dashboard?run_id={run_id}&window_hours=720")
+    assert dash.status_code == 200
+    dash_body = dash.json()
+    assert len(dash_body["series"]) == 2
+    assert dash_body["series"][0]["mpc_grid_power_kw"] == 150
+    assert dash_body["series"][0]["mpc_soc"] == 0.5
+    assert dash_body["series"][1]["mpc_grid_power_kw"] == 155
+    assert dash_body["series"][1]["mpc_soc"] == 0.52
+
+
+def test_import_mpc_run_endpoint_rejects_non_excel_files():
+    session = create_sqlite_memory_session()
+    client = TestClient(create_app(session_factory=lambda: session))
+
+    response = client.post(
+        "/api/v1/plants/hehong_huajin/import-mpc-run?profile=test",
+        files={"file": ("test.csv", b"a,b,c", "text/csv")},
+    )
+
+    assert response.status_code == 400
+    assert "仅支持" in response.json()["detail"]
