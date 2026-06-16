@@ -247,7 +247,16 @@ export default function App() {
 
   const status = useMemo(() => (data ? dashboardStatus(data) : null), [data]);
   const comparison = data?.comparison;
-  const latestTime = data ? formatChinaTime(data.current.time) : "--";
+  const latestTime = useMemo(() => {
+    if (isRealtimeMode && displayData?.series.length) {
+      const lastPoint = displayData.series[displayData.series.length - 1];
+      return formatChinaTime(lastPoint.time);
+    }
+    if (data?.current.time) {
+      return formatChinaTime(data.current.time);
+    }
+    return "--";
+  }, [data?.current.time, displayData, isRealtimeMode]);
   const targetPeak = comparison?.mpc_peak_kw ?? comparison?.actual_peak_kw;
   const latestMpcPoint = data?.series
     .slice()
