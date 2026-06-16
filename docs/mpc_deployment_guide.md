@@ -18,11 +18,27 @@
 # 前置：本机需安装 Docker Desktop + 登录 ghcr.io
 docker login ghcr.io
 
-# 执行一键脚本
+# 完整流程（提交改动 → 测试 → 构建 → 推送 → 部署）
 bash scripts/deploy-mpc.sh
+
+# 跳过测试（快速部署，仅当前端有小改动时）
+bash scripts/deploy-mpc.sh --skip-tests
+
+# 预演模式（只检查不部署，看看会发生什么）
+bash scripts/deploy-mpc.sh --dry-run
 ```
 
-脚本会自动完成：构建 → 推送 → 安全检查 → 替换容器 → 验证。
+脚本自动完成 7 个步骤：
+
+| 步骤 | 内容 | 失败时行为 |
+|---|---|---|
+| 1 | 检查前置条件（Docker, buildx, SSH, Git） | 中止 |
+| 2 | 检测未提交改动 → 提示提交信息 → 自动 commit | 中止 |
+| 3 | 前端 `npm test` + `npm run build` | 中止 |
+| 4 | 后端 `pytest tests/online` | 中止 |
+| 5 | Docker buildx 构建 amd64 镜像 → 推送 GHCR | 中止 |
+| 6 | SSH 远端安全检查 → 拉镜像 → 停旧容器 → 启新容器 | 中止 |
+| 7 | 公网验收 healthz + 两个电站 display-series | 报错但不回滚 |
 
 ---
 
