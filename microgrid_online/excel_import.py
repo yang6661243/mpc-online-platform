@@ -118,6 +118,10 @@ def _compute_peak_kw(points: Sequence[dict], field: str) -> float | None:
     return round(max(values), 4)
 
 
+def _detect_month_label(first_time: datetime) -> str:
+    return f"{first_time.month}月"
+
+
 def import_mpc_run_from_excel(
     session: Session,
     *,
@@ -129,21 +133,29 @@ def import_mpc_run_from_excel(
     if not rows:
         raise ValueError("Excel 中无有效数据行")
 
-    run_id = f"{plant_id}_{profile}_{uuid.uuid4().hex[:8]}"
+    first_time = rows[0]["time"]
+    month_label = _detect_month_label(first_time)
+
+    # 自动拼上月前缀：避免重复拼接
+    if not profile.startswith(f"{month_label}-"):
+        full_profile = f"{month_label}-{profile}"
+    else:
+        full_profile = profile
+
+    run_id = f"{plant_id}_{full_profile}_{uuid.uuid4().hex[:8]}"
 
     # 检查 run_id 是否已存在
     existing = session.scalar(select(MpcRun).where(MpcRun.run_id == run_id))
     if existing is not None:
         raise ValueError(f"run_id 已存在: {run_id}")
 
-    first_time = rows[0]["time"]
     last_time = rows[-1]["time"]
 
     # 创建 MpcRun
     run = MpcRun(
         run_id=run_id,
         plant_id=plant_id,
-        profile=profile,
+        profile=full_profile,
         status="imported",
         input_start_time=first_time,
         input_end_time=last_time,
@@ -201,7 +213,7 @@ def import_mpc_run_from_excel(
         "success": True,
         "run_id": run_id,
         "plant_id": plant_id,
-        "profile": profile,
+        "profile": full_profile,
         "point_count": len(curve_points),
         "time_range": {
             "start": first_time.isoformat() if isinstance(first_time, datetime) else str(first_time),

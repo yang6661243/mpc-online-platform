@@ -502,7 +502,7 @@ def test_import_mpc_run_endpoint_parses_excel_and_returns_run_id():
     body = response.json()
     assert body["success"] is True
     assert body["plant_id"] == "hehong_huajin"
-    assert body["profile"] == "test_import"
+    assert body["profile"] == "6月-test_import"  # 自动检测月份前缀
     assert body["point_count"] == 2
     assert "run_id" in body
 
