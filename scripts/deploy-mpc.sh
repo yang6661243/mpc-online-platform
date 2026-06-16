@@ -23,14 +23,17 @@ SKIP_TESTS=false
 DRY_RUN=false
 COMMIT_MSG=""
 
-for arg in "$@"; do
-  case "$arg" in
+while [[ $# -gt 0 ]]; do
+  case "$1" in
     --skip-tests) SKIP_TESTS=true ;;
     --dry-run)    DRY_RUN=true ;;
-    -m)           COMMIT_MSG="$2"; shift ;;
-    *)            ;;
+    -m)
+      COMMIT_MSG="$2"
+      shift
+      ;;
+    *) ;;
   esac
-  shift 2>/dev/null || true
+  shift
 done
 
 # ── 配置 ──────────────────────────────────────────────
