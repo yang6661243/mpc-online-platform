@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { buildDashboardUrl, buildRunMpcRequestUrl, toApiTime } from "./api";
+import { buildDashboardUrl, buildDisplaySeriesUrl, buildRunMpcRequestUrl, toApiTime } from "./api";
 
 describe("dashboard API", () => {
   test("builds a dashboard URL with run id and explicit time range", () => {
@@ -22,5 +22,16 @@ describe("dashboard API", () => {
   test("preserves datetime-local values as local API timestamps", () => {
     expect(toApiTime("2026-06-12T02:00")).toBe("2026-06-12T02:00:00");
     expect(toApiTime("2026-06-12T02:00:30")).toBe("2026-06-12T02:00:30");
+  });
+
+  test("builds a display series URL for raw realtime chart data", () => {
+    const url = buildDisplaySeriesUrl("hehong_huajin", {
+      windowHours: 2,
+      referenceTime: "2026-06-16T10:04:00",
+    });
+
+    expect(url).toBe(
+      "/api/v1/plants/hehong_huajin/display-series?window_hours=2&reference_time=2026-06-16T10%3A04%3A00",
+    );
   });
 });

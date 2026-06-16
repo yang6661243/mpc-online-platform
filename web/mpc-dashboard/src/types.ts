@@ -41,6 +41,7 @@ export interface DashboardSeriesPoint {
   buy_price: number | null;
   sell_price: number | null;
   quality_flag: QualityFlag;
+  display_quality?: DisplaySeriesQuality;
 }
 
 export interface DashboardResponse {
@@ -62,6 +63,33 @@ export interface RunMpcRequest {
   demand_rate?: number;
   billing_days?: number;
   target_peak_kw?: number;
+}
+
+export type DisplayQuality = "observed" | "interpolated_quadratic" | "gap" | "derived";
+
+export interface DisplaySeriesQuality {
+  grid_power_kw: DisplayQuality;
+  battery_power_kw: DisplayQuality;
+  soc: DisplayQuality;
+  load_minus_pv_kw: DisplayQuality;
+}
+
+export interface DisplaySeriesPoint {
+  time: string;
+  grid_power_kw: number | null;
+  battery_power_kw: number | null;
+  soc: number | null;
+  load_minus_pv_kw: number | null;
+  quality: DisplaySeriesQuality;
+  display_only: boolean;
+}
+
+export interface DisplaySeriesResponse {
+  plant_id: string;
+  window_hours: number;
+  step_minutes: number;
+  display_only: boolean;
+  series: DisplaySeriesPoint[];
 }
 
 export interface RunMpcResponse {

@@ -1,10 +1,16 @@
-import type { DashboardResponse, RunMpcRequest, RunMpcResponse } from "./types";
+import type { DashboardResponse, DisplaySeriesResponse, RunMpcRequest, RunMpcResponse } from "./types";
 
 export interface DashboardRequestOptions {
   windowHours: number;
   runId?: string;
   startTime?: string;
   endTime?: string;
+}
+
+export interface DisplaySeriesRequestOptions {
+  windowHours: number;
+  referenceTime?: string;
+  maxGapMinutes?: number;
 }
 
 export function toApiTime(value: string): string | undefined {
@@ -44,6 +50,29 @@ export async function fetchDashboard(
     throw new Error(`dashboard request failed: HTTP ${response.status}`);
   }
   return response.json() as Promise<DashboardResponse>;
+}
+
+export function buildDisplaySeriesUrl(plantId: string, options: DisplaySeriesRequestOptions): string {
+  const params = new URLSearchParams({ window_hours: String(options.windowHours) });
+  if (options.referenceTime) {
+    params.set("reference_time", options.referenceTime);
+  }
+  if (options.maxGapMinutes) {
+    params.set("max_gap_minutes", String(options.maxGapMinutes));
+  }
+  return `/api/v1/plants/${encodeURIComponent(plantId)}/display-series?${params}`;
+}
+
+export async function fetchDisplaySeries(
+  plantId: string,
+  options: DisplaySeriesRequestOptions,
+  signal?: AbortSignal,
+): Promise<DisplaySeriesResponse> {
+  const response = await fetch(buildDisplaySeriesUrl(plantId, options), { signal });
+  if (!response.ok) {
+    throw new Error(`display series request failed: HTTP ${response.status}`);
+  }
+  return response.json() as Promise<DisplaySeriesResponse>;
 }
 
 export function buildRunMpcRequestUrl(): string {
