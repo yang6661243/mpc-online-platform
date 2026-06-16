@@ -894,9 +894,11 @@ def main():
             + c_deg * (chg + dis) * DT
             - vpp_benefit
         )
+        # arbitrage: discharging avoids buying at buy_price, charging pays buy_price
+        arbitrage = bp * buy_full[abs_t] * DT
         traj.append([pv_full[abs_t], wind_full[abs_t], load_kw_full[abs_t],
                      soc, bp, gi, go, buy_full[abs_t], sell_full[abs_t], step_cost,
-                     vpp_resp, vpp_benefit])
+                     vpp_resp, vpp_benefit, arbitrage])
         fc_errors.append(abs(dev))
         soc += (chg_eff * chg - dis / dis_eff) * DT / bat_kwh
         soc = max(soc_min, min(soc_max, soc))
@@ -984,20 +986,21 @@ def main():
     ws1 = wb.active; ws1.title = '15min_trajectory'
     set_h(ws1, ['时间', '光伏出力(kW)', '风电出力(kW)', '负荷功率(kW)', 'SOC',
                 '电池功率(kW)', '电网功率(kW)', '购电价(元/kWh)', '售电价(元/kWh)',
-                '互济结算功率(kW)', '互济收益(元)'])
+                '互济结算功率(kW)', '互济收益(元)', '套利收益(元)'])
     for i, d in enumerate(traj):
         ts = t0_ref + timedelta(minutes=15 * i)
         ws1.append([ts.strftime('%Y-%m-%d %H:%M:%S'), round(d[0], 4), round(d[1], 4),
                     round(d[2], 4), round(d[3], 4), round(d[4], 4), round(d[5] - d[6], 4),
-                    round(d[7], 6), round(d[8], 6), round(d[10], 4), round(d[11], 4)])
-    for c in range(1, 12):
+                    round(d[7], 6), round(d[8], 6), round(d[10], 4), round(d[11], 4),
+                    round(d[12], 4)])
+    for c in range(1, 13):
         ws1.column_dimensions[get_column_letter(c)].width = 20
 
     # Sheet 2: daily_summary
     ws2 = wb.create_sheet('daily_summary')
     set_h(ws2, ['天数', '日期', '起始SOC', '结束SOC', '最低SOC', '最高SOC',
                 '光伏(kWh)', '风电(kWh)', '负荷(kWh)', '购电费(元)', '售电收益(元)',
-                '互济收益(元)', '衰减(元)', '净成本(元)'])
+                '互济收益(元)', '套利收益(元)', '衰减(元)', '净成本(元)'])
     for day in range(T_run // 96):
         s, e = day * 96, (day + 1) * 96
         dd = traj[s:e]
@@ -1006,20 +1009,23 @@ def main():
         day_gi = [r[5] for r in dd]
         day_go = [r[6] for r in dd]
         day_vpp = [r[11] for r in dd]
+        day_arb = [r[12] for r in dd]
         dpv = sum(r[0] for r in dd) * DT
         dwind = sum(r[1] for r in dd) * DT
         dload = sum(r[2] for r in dd) * DT
         dbuy = sum(dd[i][7] * day_gi[i] * DT for i in range(96))
         brev = sum(dd[i][8] * day_go[i] * DT for i in range(96))
         dvpp = sum(day_vpp)
+        darb = sum(day_arb)
         ddeg = sum(c_deg * (max(0, -b) + max(0, b)) * DT for b in day_bat)
         ws2.append([day + 1, (t0_ref + timedelta(days=day)).strftime('%Y-%m-%d'),
                     round(day_soc[0], 4), round(day_soc[-1], 4),
                     round(min(day_soc), 4), round(max(day_soc), 4),
                     round(dpv, 1), round(dwind, 1), round(dload, 1),
-                    round(dbuy, 2), round(brev, 2), round(dvpp, 2), round(ddeg, 2),
+                    round(dbuy, 2), round(brev, 2), round(dvpp, 2),
+                    round(darb, 2), round(ddeg, 2),
                     round(dbuy - brev - dvpp + ddeg, 2)])
-    for c in range(1, 15):
+    for c in range(1, 16):
         ws2.column_dimensions[get_column_letter(c)].width = 16
 
     # Sheet 3: cost_summary
@@ -1028,11 +1034,13 @@ def main():
     tp = sum(d[5] * d[7] * DT for d in traj)
     trv = sum(d[6] * d[8] * DT for d in traj)
     tvpp = sum(d[11] for d in traj)
+    tarb = sum(d[12] for d in traj)
     td_deg = sum(c_deg * (max(0, -d[4]) + max(0, d[4])) * DT for d in traj)
     rows = [
         ('购电费(元)', round(tp, 2), round(bench_r.purchase_cost, 2), ''),
         ('售电收益(元)', round(trv, 2), round(bench_r.export_revenue, 2), ''),
         ('互济收益(元)', round(tvpp, 2), round(bench_r.vpp_benefit, 2), ''),
+        ('套利收益(元)', round(tarb, 2), '', '放电省购电 - 充电花购电'),
         ('储能衰减(元)', round(td_deg, 2), round(bench_r.degradation_cost, 2), ''),
         ('需量费(元)', round(total_demand, 2), round(bench_demand, 2), ''),
         ('可控成本(元)', round(ctrl, 2), round(bench_ctrl, 2), ''),
