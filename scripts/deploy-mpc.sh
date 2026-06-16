@@ -130,7 +130,7 @@ if [ -z "$CHANGED" ] && [ -z "$UNTRACKED" ]; then
   info "无未提交改动，跳过 commit"
 else
   echo -e "  ${YELLOW}已修改文件:${NC}"
-  git status --short | grep -v '^?' | while read -r line; do
+  git status --short | { grep -v '^?' || true; } | while read -r line; do
     echo -e "    ${YELLOW}$line${NC}"
   done
 
