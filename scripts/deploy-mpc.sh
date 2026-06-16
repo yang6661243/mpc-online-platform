@@ -172,7 +172,8 @@ else
     else
       git add $TRACKED_CHANGED
       git commit -m "$COMMIT_MSG"
-      ok "已提交: $COMMIT_MSG"
+      git push
+      ok "已提交并推送: $COMMIT_MSG"
     fi
   fi
 fi
