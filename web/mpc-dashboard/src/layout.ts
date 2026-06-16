@@ -8,8 +8,8 @@ export const PLANT_OPTIONS = [
 
 export const LEFT_CHART_TITLES = ["收益对比图", "收益折线图", "需量对比图"];
 export const MAIN_KPI_TITLES = ["累计收益", "最大需量", "峰谷套利收益", "电池循环次数"];
-export const TOPBAR_TIME_LABEL = "最新数据获取时间";
-export const CONTROL_RAIL_CARD_TITLES = ["MPC 状态", "目标 SOC", "目标/给定需量值", "优化目标", "刷新时间"];
+export const TOPBAR_TIME_LABEL = "数据获取时间";
+export const CONTROL_RAIL_CARD_TITLES = ["MPC 状态", "目标 SOC", "目标/给定需量值", "优化目标", "刷新时间", "数据导入"];
 export const DASHBOARD_VISUAL_SCOPE = {
   layoutLocked: true,
   register: "product",

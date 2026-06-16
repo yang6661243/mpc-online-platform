@@ -150,7 +150,7 @@ export function buildPowerChartOption(series: DashboardSeriesPoint[]): Dashboard
           .join("<br/>");
       },
     },
-    legend: { top: 4, type: "scroll", data: legendData, selected },
+    legend: { top: 4, type: "scroll", data: legendData, selected, textStyle: { color: "#a9c9d8" } },
     grid: { left: 54, right: 58, top: 62, bottom: 42 },
     xAxis: {
       type: "category",
@@ -183,7 +183,7 @@ export function buildRevenueChartOption(series: DashboardSeriesPoint[]): Dashboa
     color: ["#38d8a8"],
     textStyle: darkChartText,
     tooltip: { trigger: "axis" },
-    legend: { top: 4, data: ["累计收益"] },
+    legend: { top: 4, data: ["累计收益"], textStyle: { color: "#a9c9d8" } },
     grid: { left: 54, right: 28, top: 48, bottom: 42 },
     xAxis: {
       type: "category",
@@ -215,7 +215,7 @@ export function buildRevenueComparisonChartOption(factoryRevenue: number | null 
     color: ["#38d8a8"],
     textStyle: darkChartText,
     tooltip: { trigger: "axis" },
-    legend: { top: 4, data: ["收益"] },
+    legend: { top: 4, data: ["收益"], textStyle: { color: "#a9c9d8" } },
     grid: { left: 42, right: 18, top: 38, bottom: 28 },
     xAxis: {
       type: "category",
@@ -243,7 +243,7 @@ export function buildDemandComparisonChartOption(factoryDemand: number | null | 
     color: ["#39d9ff"],
     textStyle: darkChartText,
     tooltip: { trigger: "axis" },
-    legend: { top: 4, data: ["最大需量"] },
+    legend: { top: 4, data: ["最大需量"], textStyle: { color: "#a9c9d8" } },
     grid: { left: 42, right: 18, top: 38, bottom: 28 },
     xAxis: {
       type: "category",
@@ -270,7 +270,7 @@ export function buildBatteryChartOption(series: DashboardSeriesPoint[]): Dashboa
     color: ["#7445a8", "#d56a1c", "#17815f", "#38a388"],
     textStyle: darkChartText,
     tooltip: { trigger: "axis" },
-    legend: { top: 4, data: ["实际储能功率", "MPC 储能功率", "实际 SOC", "MPC SOC"] },
+    legend: { top: 4, data: ["实际储能功率", "MPC 储能功率", "实际 SOC", "MPC SOC"], textStyle: { color: "#a9c9d8" } },
     grid: { left: 54, right: 54, top: 48, bottom: 42 },
     xAxis: {
       type: "category",
@@ -383,7 +383,7 @@ export function buildStrategyChartOption(series: DashboardSeriesPoint[], strateg
     color: colors,
     textStyle: darkChartText,
     tooltip: { trigger: "axis" },
-    legend: { top: 4, type: "scroll", data: legendData },
+    legend: { top: 4, type: "scroll", data: legendData, textStyle: { color: "#a9c9d8" } },
     grid: { left: 52, right: 54, top: 76, bottom: 42 },
     xAxis: {
       type: "category",

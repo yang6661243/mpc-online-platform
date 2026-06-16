@@ -119,10 +119,16 @@ select:focus-visible {
 }
 
 .topbar-time {
-  display: grid;
-  gap: 5px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   color: var(--muted);
   font-size: 13px;
+}
+
+.topbar-time > span,
+.topbar-time > strong {
+  text-align: center;
 }
 
 .topbar-time strong {
@@ -315,13 +321,17 @@ select:focus-visible {
 
 .compare-sides {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(2, 1fr);
   gap: 8px;
+  align-items: stretch;
 }
 
-.compare-sides div {
+.compare-sides > * {
   min-width: 0;
-  min-height: 54px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
   padding: 8px;
   border-radius: 6px;
   border: 1px solid rgba(92, 200, 236, 0.14);
@@ -415,8 +425,8 @@ select:focus-visible {
 }
 
 .control-rail {
-  display: grid;
-  grid-template-rows: 1.05fr 1fr 1.08fr 2.35fr 0.92fr;
+  display: flex;
+  flex-direction: column;
   gap: 10px;
 }
 
@@ -430,9 +440,23 @@ select:focus-visible {
     var(--surface-soft);
 }
 
+.rail-card:nth-child(1) { flex: 1.05; }
+.rail-card:nth-child(2) { flex: 1; }
+.rail-card:nth-child(3) { flex: 1.08; }
+.rail-card:nth-child(4) { flex: 2.35; }
+.rail-card:nth-child(5) { flex: 0.92; }
+
+.data-import-card {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
 .rail-card strong {
   display: block;
-  margin-top: 8px;
+  margin-top: 0;
   overflow-wrap: anywhere;
   color: var(--cyan);
   font-size: clamp(15px, 1vw, 19px);
@@ -441,16 +465,33 @@ select:focus-visible {
   font-variant-numeric: tabular-nums;
 }
 
+.editable-card strong {
+  font-size: clamp(22px, 1.6vw, 30px);
+  text-align: center;
+}
+
 .rail-highlight {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   border-color: rgba(66, 214, 166, 0.62);
   background:
     radial-gradient(circle at 0% 0%, rgba(66, 214, 166, 0.2), transparent 58%),
     rgba(66, 214, 166, 0.12);
 }
 
+.rail-highlight > span {
+  position: absolute;
+  top: 10px;
+  left: 12px;
+  align-self: start;
+}
+
 .rail-highlight strong {
-  color: var(--green);
-  text-shadow: 0 0 16px rgba(66, 214, 166, 0.28);
+  font-size: clamp(22px, 1.6vw, 30px);
+  text-align: center;
 }
 
 .progress-track {
@@ -475,20 +516,34 @@ select:focus-visible {
 
 .editable-card {
   position: relative;
-  padding-right: 64px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.editable-card > span {
+  position: absolute;
+  top: 10px;
+  left: 12px;
+  align-self: start;
 }
 
 .mini-action {
   position: absolute;
-  right: 10px;
-  bottom: 10px;
-  height: 26px;
-  padding: 0 8px;
-  color: #d9f7ff;
+  right: 12px;
+  top: 10px;
+  color: rgba(255, 255, 255, 0.32);
   font-size: 12px;
-  font-weight: 600;
-  border-color: rgba(81, 215, 255, 0.54);
-  background: rgba(81, 215, 255, 0.16);
+  font-weight: 500;
+  border-color: transparent;
+  background: transparent;
+  height: auto;
+  padding: 0;
+}
+
+.mini-action:hover {
+  color: rgba(255, 255, 255, 0.6);
 }
 
 .optimization-card {
@@ -522,11 +577,33 @@ select:focus-visible {
 }
 
 .piano-switch button.active {
-  color: #06121e;
-  border-color: rgba(66, 214, 166, 0.88);
-  font-weight: 800;
-  background: linear-gradient(180deg, #63e6b8, #22c693);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28);
+  color: var(--green);
+  border-color: rgba(66, 214, 166, 0.5);
+  font-weight: 700;
+  background:
+    radial-gradient(circle at 50% 100%, rgba(66, 214, 166, 0.18), transparent 60%),
+    linear-gradient(180deg, rgba(12, 48, 72, 0.98), rgba(4, 18, 31, 0.98));
+}
+
+.data-import-card {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 12px;
+}
+
+.import-action {
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted-strong);
+  font-weight: 650;
+  font-size: 14px;
+  line-height: 1.25;
+  border-color: rgba(92, 200, 236, 0.32);
+  background:
+    linear-gradient(180deg, rgba(12, 48, 72, 0.98), rgba(4, 18, 31, 0.98));
 }
 
 .compact-meta {
@@ -736,8 +813,18 @@ select:focus-visible {
   }
 
   .control-rail {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    grid-template-rows: repeat(2, minmax(110px, 1fr));
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .control-rail .rail-card {
+    flex: 1 1 calc(33.33% - 8px);
+    min-height: 110px;
+  }
+
+  .control-rail .data-import-card {
+    flex: 1 1 100%;
+    min-height: 80px;
   }
 }
 
@@ -756,10 +843,11 @@ select:focus-visible {
   .left-chart-rail,
   .compare-grid,
   .control-rail {
-    grid-template-columns: 1fr;
+    flex-direction: column;
   }
 
   .compare-grid {
+    display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

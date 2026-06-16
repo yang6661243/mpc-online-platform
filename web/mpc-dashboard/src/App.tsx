@@ -432,10 +432,7 @@ export default function App() {
           <aside className="control-rail" aria-label="状态及控制栏">
             <div className="rail-card rail-highlight">
               <span>{CONTROL_RAIL_CARD_TITLES[0]}</span>
-              <strong>{mpcStatusText}</strong>
-              <div className="progress-track" aria-hidden="true">
-                <span className={loading ? "running" : ""} />
-              </div>
+              <strong className="mpc-status-text">{mpcStatusText}</strong>
             </div>
             <div className="rail-card editable-card">
               <span>{CONTROL_RAIL_CARD_TITLES[1]}</span>
@@ -465,6 +462,12 @@ export default function App() {
                   </button>
                 ))}
               </div>
+            </div>
+            <div className="rail-card data-import-card">
+              <span>{CONTROL_RAIL_CARD_TITLES[5]}</span>
+              <button type="button" className="import-action">
+                导入电站历史数据
+              </button>
             </div>
           </aside>
         </section>
