@@ -18,6 +18,27 @@ import "./styles.css";
 const DEFAULT_PLANT_ID = "hehong_huajin";
 const AUTO_REFRESH_MS = 60_000;
 
+const MONTH_OPTIONS = [
+  { label: "实时", value: "realtime" },
+  { label: "2026年4月", value: "2026-04" },
+  { label: "2026年5月", value: "2026-05" },
+  { label: "2026年6月", value: "2026-06" },
+] as const;
+
+type MonthValue = (typeof MONTH_OPTIONS)[number]["value"];
+
+function monthToTimeRange(month: MonthValue): { start: string; end: string } | null {
+  if (month === "realtime") return null;
+  const [y, m] = month.split("-").map(Number);
+  const nextM = m === 12 ? 1 : m + 1;
+  const nextY = m === 12 ? y + 1 : y;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return {
+    start: `${y}-${pad(m)}-01T00:00`,
+    end: `${nextY}-${pad(nextM)}-01T00:00`,
+  };
+}
+
 function plantFromQuery(): string {
   const params = new URLSearchParams(window.location.search);
   return params.get("plant_id") || DEFAULT_PLANT_ID;
@@ -154,8 +175,10 @@ export default function App() {
   const [plantId, setPlantId] = useState(plantFromQuery);
   const [runId] = useState(runFromQuery);
   const [windowHours] = useState(24);
-  const [rangeStart] = useState(() => toDateTimeLocalValue(queryValue("start_time")));
-  const [rangeEnd] = useState(() => toDateTimeLocalValue(queryValue("end_time")));
+  const [selectedMonth, setSelectedMonth] = useState<MonthValue>(() => {
+    const urlStart = queryValue("start_time");
+    return urlStart ? "realtime" : "realtime";
+  });
   const [refreshCount, setRefreshCount] = useState(0);
   const [data, setData] = useState<DashboardResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -166,7 +189,21 @@ export default function App() {
   const [targetDemandOverride, setTargetDemandOverride] = useState<number | null>(null);
   const [optimizationTarget, setOptimizationTarget] = useState(OPTIMIZATION_TARGETS[0].value);
 
-  const isRealtimeMode = !runId && !rangeStart && !rangeEnd;
+  const rangeStart = useMemo(() => {
+    const monthRange = monthToTimeRange(selectedMonth);
+    if (monthRange) return monthRange.start;
+    const urlStart = queryValue("start_time");
+    return urlStart ? toDateTimeLocalValue(urlStart) : "";
+  }, [selectedMonth]);
+
+  const rangeEnd = useMemo(() => {
+    const monthRange = monthToTimeRange(selectedMonth);
+    if (monthRange) return monthRange.end;
+    const urlEnd = queryValue("end_time");
+    return urlEnd ? toDateTimeLocalValue(urlEnd) : "";
+  }, [selectedMonth]);
+
+  const isRealtimeMode = selectedMonth === "realtime" && !runId && !rangeStart && !rangeEnd;
 
   useEffect(() => {
     const controller = new AbortController();
@@ -232,11 +269,12 @@ export default function App() {
   }, [plantId, runId, windowHours, rangeStart, rangeEnd, refreshCount, isRealtimeMode]);
 
   useEffect(() => {
+    if (!isRealtimeMode) return;
     const timer = window.setInterval(() => {
       setRefreshCount((value) => value + 1);
     }, AUTO_REFRESH_MS);
     return () => window.clearInterval(timer);
-  }, []);
+  }, [isRealtimeMode]);
 
   const realtimeSeries = useMemo<DashboardSeriesPoint[]>(() => {
     if (isRealtimeMode && displayData?.series.length) {
@@ -341,7 +379,23 @@ export default function App() {
                   <span className="flat-icon icon-realtime" aria-hidden="true" />
                   <h2>实时数据对比</h2>
                 </div>
-                <span className="live-pill">REAL</span>
+                <div className="main-panel-head-actions">
+                  <span className={`live-pill ${isRealtimeMode ? "" : "live-pill-historical"}`}>
+                    {isRealtimeMode ? "REAL" : "历史"}
+                  </span>
+                  <select
+                    className="month-picker"
+                    value={selectedMonth}
+                    onChange={(event) => setSelectedMonth(event.target.value as MonthValue)}
+                    aria-label="选择数据月份"
+                  >
+                    {MONTH_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
 
               <div className="compare-grid">

@@ -92,7 +92,13 @@ function loadContent(options = {}) {
     chrome: {
       runtime: {
         onMessage: { addListener() {} },
-        sendMessage() {},
+        sendMessage(message, callback) {
+          if (typeof options.onRuntimeMessage === "function") {
+            return options.onRuntimeMessage(message, callback);
+          }
+          if (typeof callback === "function") callback({ success: true });
+          return undefined;
+        },
       },
     },
   };
@@ -100,6 +106,78 @@ function loadContent(options = {}) {
   vm.runInNewContext(source, context, { filename: "content.js" });
   return context.window.__ecloudCollectorTestHooks;
 }
+
+test("restores persisted learned templates from the background on page load", async () => {
+  const hooks = loadContent({
+    now: "2026-06-15T10:30:40+08:00",
+    onRuntimeMessage(message, callback) {
+      if (message.action === "getQueryTemplates") {
+        callback({
+          success: true,
+          templates: [
+            {
+              key: "1188",
+              stationId: "1188",
+              plantId: "hehong_huajin",
+              plantName: "和宏华进",
+              payload: {
+                stationId: 1188,
+                deviceIdList: [
+                  { srcId: 1, cols: ["p"], colNames: ["计量电表/总有功功率"] },
+                  { srcId: 2, cols: ["soc"], colNames: ["3-BMS/BMS-系统SOC"] },
+                  { srcId: 3, cols: ["p"], colNames: ["防逆流电表/ADW-总有功功率"] },
+                ],
+                beginTime: "2026-06-01 00:00:00",
+                endTime: "2026-06-01 00:10:00",
+              },
+              observedAt: "2026-06-15T10:00:00.000Z",
+              missingRequiredMetrics: [],
+            },
+          ],
+        });
+      }
+    },
+  });
+
+  await hooks.loadPersistedQueryTemplates();
+
+  assert.deepEqual(JSON.parse(JSON.stringify(hooks.summarizeTemplates())), [
+    {
+      stationId: "1188",
+      plantId: "hehong_huajin",
+      plantName: "和宏华进",
+      observedAt: "2026-06-15T10:00:00.000Z",
+      missingRequiredMetrics: [],
+    },
+  ]);
+  assert.equal(hooks.buildObservedQueryPayload().beginTime, "2026-06-15 10:19:00");
+});
+
+test("persists each learned query template through the background", () => {
+  const messages = [];
+  const hooks = loadContent({
+    onRuntimeMessage(message, callback) {
+      messages.push(JSON.parse(JSON.stringify(message)));
+      if (typeof callback === "function") callback({ success: true });
+    },
+  });
+
+  hooks.observeEcloudQueryTemplate({
+    url: "/business/point/pointDataShowList",
+    payload: {
+      stationId: 1188,
+      stationName: "和宏华进",
+      deviceIdList: [
+        { srcId: 1, cols: ["p"], colNames: ["计量电表/总有功功率"] },
+      ],
+    },
+  });
+
+  const saved = messages.find((message) => message.action === "saveQueryTemplate");
+  assert.equal(saved.template.stationId, "1188");
+  assert.equal(saved.template.plantId, "hehong_huajin");
+  assert.equal(saved.template.payload.stationId, 1188);
+});
 
 test("stores observed eCloud query template and rewrites only the rolling time window", () => {
   const hooks = loadContent({ now: "2026-06-13T08:30:40+08:00" });
@@ -208,6 +286,57 @@ test("records partial observed templates and reports missing required metrics", 
   assert.deepEqual(JSON.parse(JSON.stringify(template.missingRequiredMetrics)), [
     "3-BMS/BMS-系统SOC",
     "防逆流电表/ADW-总有功功率",
+  ]);
+});
+
+test("merges partial templates for the same station into one complete template", () => {
+  const hooks = loadContent({ now: "2026-06-15T10:30:40+08:00" });
+
+  hooks.observeEcloudQueryTemplate({
+    url: "/api/business/point/pointDataShowList",
+    payload: {
+      stationId: 3341,
+      stationName: "奥莱德(上海)光电材料科技有限公司1号站",
+      deviceIdList: [
+        { srcId: 10, cols: ["soc"], colNames: ["4-BMS/系统SOC"] },
+      ],
+    },
+  });
+  hooks.observeEcloudQueryTemplate({
+    url: "/api/business/point/pointDataShowList",
+    payload: {
+      stationId: 3341,
+      stationName: "奥莱德(上海)光电材料科技有限公司1号站",
+      deviceIdList: [
+        { srcId: 11, cols: ["p"], colNames: ["计量电表-1352/1352-总有功功率"] },
+      ],
+    },
+  });
+  hooks.observeEcloudQueryTemplate({
+    url: "/api/business/point/pointDataShowList",
+    payload: {
+      stationId: 3341,
+      stationName: "奥莱德(上海)光电材料科技有限公司1号站",
+      deviceIdList: [
+        { srcId: 12, cols: ["p"], colNames: ["防逆流电表-666/666-合相有功功率Pt"] },
+      ],
+    },
+  });
+
+  assert.deepEqual(JSON.parse(JSON.stringify(hooks.summarizeTemplates())), [
+    {
+      stationId: "3341",
+      plantId: "ecloud_station_3341",
+      plantName: "奥莱德(上海)光电材料科技有限公司1号站",
+      observedAt: "2026-06-15T02:30:40.000Z",
+      missingRequiredMetrics: [],
+    },
+  ]);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(hooks.buildObservedQueryPayload().deviceIdList)), [
+    { srcId: 10, cols: ["soc"], colNames: ["4-BMS/系统SOC"] },
+    { srcId: 11, cols: ["p"], colNames: ["计量电表-1352/1352-总有功功率"] },
+    { srcId: 12, cols: ["p"], colNames: ["防逆流电表-666/666-合相有功功率Pt"] },
   ]);
 });
 

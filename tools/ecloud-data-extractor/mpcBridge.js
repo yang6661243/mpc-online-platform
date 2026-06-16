@@ -5,7 +5,7 @@
 
   const DEFAULT_CONFIG = {
     plantId: "hehong_huajin",
-    mpcBaseUrl: "http://127.0.0.1:18000",
+    mpcBaseUrl: "http://8.163.49.151:18000",
     aggregateWindowMinutes: 15,
     socHoldMinutes: 10,
   };
@@ -84,6 +84,36 @@
       return "grid_power_kw";
     }
     return null;
+  }
+
+  function summarizeMpcRows(rows, limit = 8) {
+    const plants = new Set();
+    const unmatched = new Set();
+    const matchedCounts = {
+      grid_power_kw: 0,
+      battery_power_kw: 0,
+      soc: 0,
+    };
+
+    for (const row of rows || []) {
+      const plantId = String(row?.plantId || row?.stationId || "").trim();
+      if (plantId) plants.add(plantId);
+
+      const tableName = String(row?.tableName || "").trim();
+      const field = classifyTableName(tableName);
+      if (field) {
+        matchedCounts[field] += 1;
+      } else if (tableName && unmatched.size < limit) {
+        unmatched.add(tableName);
+      }
+    }
+
+    return {
+      totalRows: Array.isArray(rows) ? rows.length : 0,
+      plants: Array.from(plants).sort(),
+      matchedCounts,
+      unmatchedTableNames: Array.from(unmatched),
+    };
   }
 
   function toFiniteNumber(value) {
@@ -217,6 +247,7 @@
     buildMpcIngestPayloads,
     classifyTableName,
     findNearestSoc,
+    summarizeMpcRows,
     toChinaIsoTimestamp,
   };
 

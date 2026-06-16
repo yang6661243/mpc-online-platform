@@ -54,6 +54,21 @@ function mpcUrl(path) {
   return `${MPC_CONFIG.baseUrl.replace(/\/$/, '')}${path}`;
 }
 
+function buildMpcSkipReason(rows) {
+  const summary = MpcBridge.summarizeMpcRows(rows || []);
+  const counts = summary.matchedCounts || {};
+  const plants = summary.plants?.length ? `；电站: ${summary.plants.join('、')}` : '';
+  const unmatched = summary.unmatchedTableNames?.length
+    ? `；未匹配表名示例: ${summary.unmatchedTableNames.join('、')}`
+    : '';
+  return [
+    `本批${summary.totalRows}条数据未生成MPC payload`,
+    `已识别 电网${counts.grid_power_kw || 0}条/储能功率${counts.battery_power_kw || 0}条/SOC${counts.soc || 0}条`,
+    plants,
+    unmatched
+  ].join('');
+}
+
 async function postJson(path, payload) {
   const response = await fetch(mpcUrl(path), {
     method: 'POST',
@@ -106,7 +121,7 @@ async function pushDataToMpc(rows) {
     mpcStatus = {
       ...mpcStatus,
       state: 'skipped',
-      lastError: '本批数据未匹配到电网功率、储能功率或SOC表名'
+      lastError: buildMpcSkipReason(rows)
     };
     return { skipped: true, reason: mpcStatus.lastError };
   }
@@ -192,6 +207,21 @@ async function getLocalRowCount() {
 async function handleRuntimeMessage(request) {
   if (request.action === 'saveData') {
     return handleSaveData(request);
+  }
+
+  if (request.action === 'saveQueryTemplate') {
+    const result = await EcloudLocalDb.upsertQueryTemplates([request.template]);
+    return { success: true, result };
+  }
+
+  if (request.action === 'getQueryTemplates') {
+    const templates = await EcloudLocalDb.getQueryTemplates();
+    return { success: true, templates };
+  }
+
+  if (request.action === 'clearQueryTemplates') {
+    await EcloudLocalDb.clearQueryTemplates();
+    return { success: true };
   }
 
   if (request.action === 'saveMpcConfig') {

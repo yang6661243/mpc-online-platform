@@ -4,8 +4,9 @@
   "use strict";
 
   const DB_NAME = "ecloud_collector";
-  const DB_VERSION = 1;
+  const DB_VERSION = 2;
   const STORE_NAME = "rows";
+  const TEMPLATE_STORE_NAME = "queryTemplates";
   const DEFAULT_LIMIT = 100;
 
   let dbPromise = null;
@@ -28,6 +29,37 @@
       date: normalizeText(row?.date),
       value: normalizeText(row?.value),
       timestamp: normalizeText(row?.timestamp),
+      savedAt,
+    };
+  }
+
+  function cloneJson(value, fallback = null) {
+    try {
+      return JSON.parse(JSON.stringify(value));
+    } catch (error) {
+      return fallback;
+    }
+  }
+
+  function makeTemplateKey(template) {
+    return normalizeText(template?.key || template?.stationId || template?.payload?.stationId || "default");
+  }
+
+  function normalizeQueryTemplate(template, savedAt = new Date().toISOString()) {
+    const key = makeTemplateKey(template);
+    return {
+      id: key,
+      key,
+      stationId: normalizeText(template?.stationId || template?.payload?.stationId || key),
+      plantId: normalizeText(template?.plantId),
+      plantName: normalizeText(template?.plantName),
+      url: normalizeText(template?.url),
+      payload: cloneJson(template?.payload, {}),
+      observedAt: normalizeText(template?.observedAt || savedAt),
+      metricText: normalizeText(template?.metricText),
+      missingRequiredMetrics: Array.isArray(template?.missingRequiredMetrics)
+        ? template.missingRequiredMetrics.map(normalizeText).filter(Boolean)
+        : [],
       savedAt,
     };
   }
@@ -67,6 +99,16 @@
       .slice(0, limit);
   }
 
+  function sortQueryTemplates(templates) {
+    return (templates || [])
+      .slice()
+      .sort((a, b) => {
+        const observedCompare = normalizeText(a.observedAt || a.savedAt).localeCompare(normalizeText(b.observedAt || b.savedAt));
+        if (observedCompare !== 0) return observedCompare;
+        return normalizeText(a.stationId || a.key).localeCompare(normalizeText(b.stationId || b.key));
+      });
+  }
+
   function requestToPromise(request) {
     return new Promise((resolve, reject) => {
       request.onsuccess = () => resolve(request.result);
@@ -97,6 +139,12 @@
           store.createIndex("date", "date", { unique: false });
           store.createIndex("tableName", "tableName", { unique: false });
           store.createIndex("savedAt", "savedAt", { unique: false });
+        }
+        if (!db.objectStoreNames.contains(TEMPLATE_STORE_NAME)) {
+          const templateStore = db.createObjectStore(TEMPLATE_STORE_NAME, { keyPath: "id" });
+          templateStore.createIndex("stationId", "stationId", { unique: false });
+          templateStore.createIndex("observedAt", "observedAt", { unique: false });
+          templateStore.createIndex("savedAt", "savedAt", { unique: false });
         }
       };
       request.onsuccess = () => resolve(request.result);
@@ -149,15 +197,57 @@
     return true;
   }
 
+  async function upsertQueryTemplates(templates) {
+    const normalizedTemplates = (templates || [])
+      .map((template) => normalizeQueryTemplate(template))
+      .filter((template) => template.stationId && template.payload && Object.keys(template.payload).length > 0);
+    if (normalizedTemplates.length === 0) {
+      return { savedCount: 0 };
+    }
+
+    const db = await openDb();
+    const transaction = db.transaction(TEMPLATE_STORE_NAME, "readwrite");
+    const done = transactionDone(transaction);
+    const store = transaction.objectStore(TEMPLATE_STORE_NAME);
+    normalizedTemplates.forEach((template) => store.put(template));
+    await done;
+    return { savedCount: normalizedTemplates.length };
+  }
+
+  async function getQueryTemplates() {
+    const db = await openDb();
+    const transaction = db.transaction(TEMPLATE_STORE_NAME, "readonly");
+    const done = transactionDone(transaction);
+    const templates = await requestToPromise(transaction.objectStore(TEMPLATE_STORE_NAME).getAll());
+    await done;
+    return sortQueryTemplates(templates);
+  }
+
+  async function clearQueryTemplates() {
+    const db = await openDb();
+    const transaction = db.transaction(TEMPLATE_STORE_NAME, "readwrite");
+    const done = transactionDone(transaction);
+    transaction.objectStore(TEMPLATE_STORE_NAME).clear();
+    await done;
+    return true;
+  }
+
   const api = {
     DB_NAME,
     STORE_NAME,
+    TEMPLATE_STORE_NAME,
+    clearQueryTemplates,
     clearRows,
     countRows,
     filterRows,
+    getQueryTemplates,
     getRows,
     makeRowKey,
+    makeTemplateKey,
+    normalizeQueryTemplate,
     normalizeRow,
+    sortQueryTemplates,
+    upsertQueryTemplates,
     upsertRows,
   };
 

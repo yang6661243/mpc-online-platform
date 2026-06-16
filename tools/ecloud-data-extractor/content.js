@@ -285,13 +285,122 @@
     };
   }
 
+  function mergeDeviceIdLists(left, right) {
+    const merged = [];
+    const seen = new Set();
+    [...normalizeDeviceIdList(left), ...normalizeDeviceIdList(right)].forEach((item) => {
+      const cols = [];
+      const colNames = [];
+      item.cols.forEach((col, index) => {
+        const key = `${item.srcId}:${col}`;
+        if (seen.has(key)) return;
+        seen.add(key);
+        cols.push(col);
+        colNames.push(item.colNames[index] || col);
+      });
+      if (cols.length > 0) {
+        merged.push({ srcId: item.srcId, cols, colNames });
+      }
+    });
+    return merged;
+  }
+
+  function mergeObservedTemplate(existing, incoming) {
+    if (!existing) return incoming;
+    const payload = cloneJson(existing.payload, {});
+    const incomingPayload = cloneJson(incoming.payload, {});
+    payload.deviceIdList = mergeDeviceIdLists(payload.deviceIdList, incomingPayload.deviceIdList);
+    payload.stationId = payload.stationId || incomingPayload.stationId;
+    payload.sampleTime = incomingPayload.sampleTime || payload.sampleTime;
+    payload.isOriginal = incomingPayload.isOriginal ?? payload.isOriginal;
+
+    const metricText = getTemplateMetricText(payload);
+    return {
+      ...existing,
+      ...incoming,
+      plantId: incoming.plantId || existing.plantId,
+      plantName: incoming.plantName || existing.plantName,
+      url: incoming.url || existing.url,
+      payload,
+      metricText,
+      missingRequiredMetrics: getMissingRequiredMetrics(metricText).map((metric) => metric.fullName),
+    };
+  }
+
   function upsertObservedQueryTemplate(template) {
     const index = observedQueryTemplates.findIndex((item) => item.key === template.key);
+    let savedTemplate = template;
     if (index >= 0) {
-      observedQueryTemplates[index] = template;
+      savedTemplate = mergeObservedTemplate(observedQueryTemplates[index], template);
+      observedQueryTemplates[index] = savedTemplate;
     } else {
-      observedQueryTemplates.push(template);
+      observedQueryTemplates.push(savedTemplate);
     }
+    return { count: observedQueryTemplates.length, template: savedTemplate };
+  }
+
+  function sendRuntimeMessage(message) {
+    return new Promise((resolve) => {
+      try {
+        if (!chrome?.runtime?.sendMessage) {
+          resolve({ success: false, error: "chrome.runtime.sendMessage不可用" });
+          return;
+        }
+        chrome.runtime.sendMessage(message, (response) => {
+          resolve(response || { success: false, error: "后台未返回响应" });
+        });
+      } catch (error) {
+        resolve({ success: false, error: error?.message || String(error) });
+      }
+    });
+  }
+
+  function normalizePersistedTemplate(template) {
+    if (!template || typeof template !== "object") return null;
+    const payload = cloneJson(template.payload, {});
+    if (!payload || typeof payload !== "object") return null;
+    const stationId = String(template.stationId || payload.stationId || template.key || "");
+    if (!stationId) return null;
+    return {
+      key: String(template.key || stationId),
+      stationId,
+      plantId: normalizeText(template.plantId || sanitizePlantId(template.plantName, stationId)),
+      plantName: normalizeText(template.plantName || `eCloud电站${stationId}`),
+      url: template.url || "",
+      payload,
+      observedAt: template.observedAt || template.savedAt || new Date().toISOString(),
+      metricText: template.metricText || "",
+      missingRequiredMetrics: Array.isArray(template.missingRequiredMetrics)
+        ? template.missingRequiredMetrics.slice()
+        : [],
+    };
+  }
+
+  async function persistObservedQueryTemplate(template) {
+    const response = await sendRuntimeMessage({ action: "saveQueryTemplate", template });
+    if (!response?.success) {
+      setLastError(response?.error || "保存接口模板失败");
+      log(`保存接口模板失败: ${lastError}`);
+      return false;
+    }
+    return true;
+  }
+
+  async function loadPersistedQueryTemplates() {
+    const response = await sendRuntimeMessage({ action: "getQueryTemplates" });
+    if (!response?.success) {
+      return 0;
+    }
+    const templates = (response.templates || [])
+      .map(normalizePersistedTemplate)
+      .filter(Boolean);
+    if (templates.length === 0 || isLearning) {
+      return 0;
+    }
+    observedQueryTemplates = [];
+    templates.forEach(upsertObservedQueryTemplate);
+    setLastError("");
+    log(`已恢复${observedQueryTemplates.length}个已学习接口模板: ${formatTemplateStatus()}`);
     return observedQueryTemplates.length;
   }
 
@@ -333,10 +442,11 @@
     const payload = cloneJson(message.payload);
     const validation = validateObservedTemplate(payload);
     const template = buildTemplateSummary(message, payload, validation);
-    const templateCount = upsertObservedQueryTemplate(template);
+    const result = upsertObservedQueryTemplate(template);
+    persistObservedQueryTemplate(result.template);
     setLastError("");
-    log(`已记录eCloud接口查询模板: ${template.plantName} stationId=${template.stationId}，当前${templateCount}个模板${metricWarningText(template)}`);
-    return cloneJson(template);
+    log(`已记录eCloud接口查询模板: ${result.template.plantName} stationId=${result.template.stationId}，当前${result.count}个模板${metricWarningText(result.template)}`);
+    return cloneJson(result.template);
   }
 
   function buildObservedQueryPayload(timeRange = getTimeRange(), template = getDefaultObservedTemplate()) {
@@ -954,6 +1064,7 @@
     injectPageHook();
     window.addEventListener("message", onPageMessage);
     createFloatingButton();
+    loadPersistedQueryTemplates();
     chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       if (request.action === "startCollection") {
         startCollection();
@@ -1030,6 +1141,7 @@
       rowMatchesRequiredMetric,
       summarizeTemplates,
       buildTemplateSummary,
+      loadPersistedQueryTemplates,
     };
   }
 

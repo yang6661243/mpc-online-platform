@@ -5,11 +5,16 @@ const {
   buildAggregateWindow,
   buildMpcIngestPayloads,
   classifyTableName,
+  summarizeMpcRows,
   toChinaIsoTimestamp,
 } = require("./mpcBridge.js");
 
 test("defaults uploads to hehong huajin plant id", () => {
   assert.equal(DEFAULT_CONFIG.plantId, "hehong_huajin");
+});
+
+test("defaults uploads to the cloud MPC backend", () => {
+  assert.equal(DEFAULT_CONFIG.mpcBaseUrl, "http://8.163.49.151:18000");
 });
 
 test("converts eCloud grid table rows into a grid_meter payload", () => {
@@ -153,5 +158,25 @@ test("builds aggregate window aligned to 15 minute boundaries", () => {
     start_time: "2026-06-12T10:00:00+08:00",
     end_time: "2026-06-12T10:30:00+08:00",
     window_minutes: 15,
+  });
+});
+
+test("summarizes matched and unmatched table names for MPC diagnostics", () => {
+  const summary = summarizeMpcRows([
+    { plantId: "hehong_huajin", tableName: "防逆流电表/ADW-总有功功率", date: "2026-06-12 10:00:00", value: "100" },
+    { plantId: "aodelai", tableName: "未知功率字段A", date: "2026-06-12 10:00:00", value: "100" },
+    { plantId: "aodelai", tableName: "未知功率字段A", date: "2026-06-12 10:01:00", value: "101" },
+    { plantId: "aodelai", tableName: "未知电量字段B", date: "2026-06-12 10:00:00", value: "58" },
+  ]);
+
+  assert.deepEqual(summary, {
+    totalRows: 4,
+    plants: ["aodelai", "hehong_huajin"],
+    matchedCounts: {
+      grid_power_kw: 1,
+      battery_power_kw: 0,
+      soc: 0,
+    },
+    unmatchedTableNames: ["未知功率字段A", "未知电量字段B"],
   });
 });

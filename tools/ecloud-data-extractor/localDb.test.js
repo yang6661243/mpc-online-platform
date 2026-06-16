@@ -60,3 +60,49 @@ test("filters local rows by table name and source time descending", () => {
     ["3-BMS/BMS-系统SOC", "2026-06-15 09:30:00", "61"],
   ]);
 });
+
+test("normalizes learned query templates for persistent storage", () => {
+  const template = LocalDb.normalizeQueryTemplate(
+    {
+      stationId: 1188,
+      plantId: "hehong_huajin",
+      plantName: "和宏华进",
+      url: "/business/point/pointDataShowList",
+      payload: {
+        stationId: 1188,
+        beginTime: "2026-06-01 00:00:00",
+        deviceIdList: [{ srcId: 1, cols: ["p"], colNames: ["计量电表/总有功功率"] }],
+      },
+      observedAt: "2026-06-15T10:00:00.000Z",
+      missingRequiredMetrics: ["3-BMS/BMS-系统SOC"],
+    },
+    "2026-06-15T10:00:01.000Z",
+  );
+
+  assert.deepEqual(template, {
+    id: "1188",
+    key: "1188",
+    stationId: "1188",
+    plantId: "hehong_huajin",
+    plantName: "和宏华进",
+    url: "/business/point/pointDataShowList",
+    payload: {
+      stationId: 1188,
+      beginTime: "2026-06-01 00:00:00",
+      deviceIdList: [{ srcId: 1, cols: ["p"], colNames: ["计量电表/总有功功率"] }],
+    },
+    observedAt: "2026-06-15T10:00:00.000Z",
+    metricText: "",
+    missingRequiredMetrics: ["3-BMS/BMS-系统SOC"],
+    savedAt: "2026-06-15T10:00:01.000Z",
+  });
+});
+
+test("sorts persisted query templates by learning time", () => {
+  const rows = [
+    LocalDb.normalizeQueryTemplate({ stationId: 2, observedAt: "2026-06-15T10:02:00.000Z", payload: { stationId: 2 } }),
+    LocalDb.normalizeQueryTemplate({ stationId: 1, observedAt: "2026-06-15T10:01:00.000Z", payload: { stationId: 1 } }),
+  ];
+
+  assert.deepEqual(LocalDb.sortQueryTemplates(rows).map((row) => row.stationId), ["1", "2"]);
+});
