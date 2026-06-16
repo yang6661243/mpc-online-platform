@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { fetchDashboard, fetchDisplaySeries, toApiTime } from "./api";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { fetchDashboard, fetchDisplaySeries, importMpcRun, toApiTime } from "./api";
 import { displaySeriesToDashboardSeries } from "./displaySeries";
 import type { DashboardResponse, DashboardSeriesPoint, DisplaySeriesResponse } from "./types";
 import {
@@ -187,6 +187,28 @@ export default function App() {
   const [targetSocOverride, setTargetSocOverride] = useState<number | null>(null);
   const [targetDemandOverride, setTargetDemandOverride] = useState<number | null>(null);
   const [optimizationTarget, setOptimizationTarget] = useState(OPTIMIZATION_TARGETS[0].value);
+  const [importing, setImporting] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleImportExcel = useCallback(async () => {
+    const input = fileInputRef.current;
+    if (!input?.files?.length) return;
+    const file = input.files[0];
+    setImporting(true);
+    setImportError(null);
+    try {
+      const result = await importMpcRun(plantId, optimizationTarget, file);
+      // 导入成功后自动跳转到该 run
+      window.history.replaceState(null, "", `?plant_id=${plantId}&run_id=${result.run_id}`);
+      window.location.reload();
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : "导入失败");
+    } finally {
+      setImporting(false);
+      if (input) input.value = "";
+    }
+  }, [plantId, optimizationTarget]);
 
   const rangeStart = useMemo(() => {
     const monthRange = monthToTimeRange(selectedMonth);
@@ -389,6 +411,24 @@ export default function App() {
                       </option>
                     ))}
                   </select>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".xlsx,.xls"
+                    style={{ display: "none" }}
+                    onChange={handleImportExcel}
+                    aria-label="导入 MPC 结果 Excel"
+                  />
+                  <button
+                    type="button"
+                    className="import-button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={importing}
+                    title={`导入线下 MPC 结果（${optimizationTarget}）`}
+                  >
+                    {importing ? "导入中..." : "📥 导入"}
+                  </button>
+                  {importError && <span className="import-error" title={importError}>导入失败</span>}
                 </div>
               </div>
 

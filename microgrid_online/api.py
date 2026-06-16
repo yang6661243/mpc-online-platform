@@ -4,7 +4,7 @@ from collections.abc import Callable
 from pathlib import Path
 import os
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -17,6 +17,7 @@ from microgrid_online.dashboard_data import build_dashboard_payload, comparison_
 from microgrid_online.dashboard_page import render_dashboard_page
 from microgrid_online.data_health import build_data_health_payload
 from microgrid_online.display_series import build_display_series_payload
+from microgrid_online.excel_import import import_mpc_run_from_excel
 from microgrid_online.time_utils import parse_timestamp
 from microgrid_online.database import create_session_factory
 from microgrid_online.ingestion import ingest_battery_records, ingest_grid_records
@@ -373,6 +374,28 @@ def create_app(
                 window_hours=window_hours,
                 max_gap_minutes=max_gap_minutes,
             )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/v1/plants/{plant_id}/import-mpc-run")
+    async def import_mpc_run(
+        plant_id: str,
+        profile: str = Query(default="imported", description="策略名称，如 100%需量+峰谷套利"),
+        file: UploadFile = File(...),
+        session: Session = Depends(get_session),
+    ):
+        plant_id = normalize_plant_id(plant_id)
+        if not file.filename or not (file.filename.endswith(".xlsx") or file.filename.endswith(".xls")):
+            raise HTTPException(status_code=400, detail="仅支持 .xlsx 或 .xls 文件")
+        try:
+            content = await file.read()
+            result = import_mpc_run_from_excel(
+                session,
+                plant_id=plant_id,
+                file_bytes=content,
+                profile=profile,
+            )
+            return result
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 

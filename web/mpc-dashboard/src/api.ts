@@ -75,6 +75,36 @@ export async function fetchDisplaySeries(
   return response.json() as Promise<DisplaySeriesResponse>;
 }
 
+export function buildImportMpcRunUrl(plantId: string, profile: string): string {
+  return `/api/v1/plants/${encodeURIComponent(plantId)}/import-mpc-run?profile=${encodeURIComponent(profile)}`;
+}
+
+export async function importMpcRun(
+  plantId: string,
+  profile: string,
+  file: File,
+  signal?: AbortSignal,
+): Promise<{ success: boolean; run_id: string; point_count: number; time_range: { start: string; end: string } }> {
+  const formData = new FormData();
+  formData.append("file", file);
+  const response = await fetch(buildImportMpcRunUrl(plantId, profile), {
+    method: "POST",
+    body: formData,
+    signal,
+  });
+  if (!response.ok) {
+    let detail = "";
+    try {
+      const body = await response.json();
+      detail = typeof body.detail === "string" ? `: ${body.detail}` : "";
+    } catch {
+      detail = "";
+    }
+    throw new Error(`导入失败: HTTP ${response.status}${detail}`);
+  }
+  return response.json();
+}
+
 export function buildRunMpcRequestUrl(): string {
   return "/api/v1/mpc/run";
 }
