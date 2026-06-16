@@ -43,7 +43,8 @@ SERVER="root@8.163.49.151"
 SSH_KEY="$HOME/.ssh/id_ed25519_aliyun_mpc"
 PORT_HOST=18000
 PORT_CONTAINER=8000
-PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 DASHBOARD_DIR="$PROJECT_ROOT/web/mpc-dashboard"
 VENV_PYTHON="$PROJECT_ROOT/.venv/bin/python"
 
