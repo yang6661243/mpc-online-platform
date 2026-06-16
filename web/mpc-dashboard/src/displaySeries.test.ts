@@ -61,4 +61,22 @@ describe("display series conversion", () => {
       }),
     ).toBe("display:observed");
   });
+
+  test("always sets MPC strategy fields to null — must not replace dashboard series in historical replay mode", () => {
+    const series = displaySeriesToDashboardSeries(response);
+
+    const point = series[0];
+    expect(point.mpc_grid_power_kw).toBeNull();
+    expect(point.mpc_battery_power_kw).toBeNull();
+    expect(point.mpc_soc).toBeNull();
+    expect(point.mpc_load_kw).toBeNull();
+    expect(point.mpc_pv_kw).toBeNull();
+    expect(point.buy_price).toBeNull();
+    expect(point.sell_price).toBeNull();
+
+    // These are the fields that DO carry real data from display-series:
+    expect(point.actual_grid_power_kw).toBe(100);
+    expect(point.actual_battery_power_kw).toBe(10);
+    expect(point.actual_soc).toBe(0.5);
+  });
 });

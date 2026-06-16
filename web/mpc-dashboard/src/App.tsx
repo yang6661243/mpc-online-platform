@@ -166,21 +166,43 @@ export default function App() {
   const [targetDemandOverride, setTargetDemandOverride] = useState<number | null>(null);
   const [optimizationTarget, setOptimizationTarget] = useState(OPTIMIZATION_TARGETS[0].value);
 
+  const isRealtimeMode = !runId && !rangeStart && !rangeEnd;
+
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
     setError(null);
+    const dashboardPromise = fetchDashboard(
+      plantId,
+      {
+        windowHours,
+        runId: runId.trim() || undefined,
+        startTime: toApiTime(rangeStart),
+        endTime: toApiTime(rangeEnd),
+      },
+      controller.signal,
+    );
+
+    if (!isRealtimeMode) {
+      setDisplayData(null);
+      dashboardPromise
+        .then((nextData) => {
+          setData(nextData);
+          setLastLoadedAt(new Date());
+          setError(null);
+        })
+        .catch((err: Error) => {
+          if (err.name !== "AbortError") {
+            setData(null);
+            setError(err.message);
+          }
+        })
+        .finally(() => setLoading(false));
+      return () => controller.abort();
+    }
+
     Promise.allSettled([
-      fetchDashboard(
-        plantId,
-        {
-          windowHours,
-          runId: runId.trim() || undefined,
-          startTime: toApiTime(rangeStart),
-          endTime: toApiTime(rangeEnd),
-        },
-        controller.signal,
-      ),
+      dashboardPromise,
       fetchDisplaySeries(
         plantId,
         {
@@ -207,7 +229,7 @@ export default function App() {
       })
       .finally(() => setLoading(false));
     return () => controller.abort();
-  }, [plantId, runId, windowHours, rangeStart, rangeEnd, refreshCount]);
+  }, [plantId, runId, windowHours, rangeStart, rangeEnd, refreshCount, isRealtimeMode]);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -217,11 +239,11 @@ export default function App() {
   }, []);
 
   const realtimeSeries = useMemo<DashboardSeriesPoint[]>(() => {
-    if (displayData?.series.length) {
+    if (isRealtimeMode && displayData?.series.length) {
       return displaySeriesToDashboardSeries(displayData);
     }
     return data?.series || [];
-  }, [data?.series, displayData]);
+  }, [data?.series, displayData, isRealtimeMode]);
 
   const status = useMemo(() => (data ? dashboardStatus(data) : null), [data]);
   const comparison = data?.comparison;
