@@ -183,7 +183,6 @@ export default function App() {
   const [data, setData] = useState<DashboardResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [lastLoadedAt, setLastLoadedAt] = useState<Date | null>(null);
   const [displayData, setDisplayData] = useState<DisplaySeriesResponse | null>(null);
   const [targetSocOverride, setTargetSocOverride] = useState<number | null>(null);
   const [targetDemandOverride, setTargetDemandOverride] = useState<number | null>(null);
@@ -225,7 +224,6 @@ export default function App() {
       dashboardPromise
         .then((nextData) => {
           setData(nextData);
-          setLastLoadedAt(new Date());
           setError(null);
         })
         .catch((err: Error) => {
@@ -251,7 +249,6 @@ export default function App() {
       .then(([dashboardResult, displayResult]) => {
         if (dashboardResult.status === "fulfilled") {
           setData(dashboardResult.value);
-          setLastLoadedAt(new Date());
           setError(null);
         } else if (dashboardResult.reason?.name !== "AbortError") {
           setData(null);
@@ -380,9 +377,6 @@ export default function App() {
                   <h2>实时数据对比</h2>
                 </div>
                 <div className="main-panel-head-actions">
-                  <span className={`live-pill ${isRealtimeMode ? "" : "live-pill-historical"}`}>
-                    {isRealtimeMode ? "REAL" : "历史"}
-                  </span>
                   <select
                     className="month-picker"
                     value={selectedMonth}
@@ -471,10 +465,6 @@ export default function App() {
                   </button>
                 ))}
               </div>
-            </div>
-            <div className="rail-card compact-meta">
-              <span>{CONTROL_RAIL_CARD_TITLES[4]}</span>
-              <strong>{lastLoadedAt ? formatChinaTime(lastLoadedAt.toISOString()) : "--"}</strong>
             </div>
           </aside>
         </section>
