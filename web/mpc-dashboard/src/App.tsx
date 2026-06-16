@@ -1,13 +1,18 @@
-import { useEffect, useMemo, useState } from "react";
-import { fetchDashboard, toApiTime } from "./api";
-import { DetailTable } from "./components/DetailTable";
-import { MetricCard } from "./components/MetricCard";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { fetchDashboard, fetchDisplaySeries, toApiTime } from "./api";
+import { displaySeriesToDashboardSeries } from "./displaySeries";
+import type { DashboardResponse, DashboardSeriesPoint, DisplaySeriesResponse } from "./types";
+import {
+  buildDemandComparisonChartOption,
+  buildRevenueComparisonChartOption,
+} from "./chartOptions";
+import { OptionChart } from "./components/OptionChart";
 import { PowerChart } from "./components/PowerChart";
 import { RevenueChart } from "./components/RevenueChart";
-import { formatKw, formatPercent, formatSoc, formatYuan } from "./format";
+import { formatKw, formatNumber, formatSoc, formatYuan } from "./format";
+import { CONTROL_RAIL_CARD_TITLES, LEFT_CHART_TITLES, OPTIMIZATION_TARGETS, PLANT_OPTIONS, TOPBAR_TIME_LABEL } from "./layout";
 import { dashboardStatus } from "./status";
-import { formatChinaTime, formatDataDelay } from "./time";
-import type { DashboardResponse } from "./types";
+import { formatChinaTime } from "./time";
 import "./styles.css";
 
 const DEFAULT_PLANT_ID = "hehong_huajin";
@@ -36,50 +41,168 @@ function toDateTimeLocalValue(value: string): string {
   return local.toISOString().slice(0, 16);
 }
 
-function monthRange(year: number, month: number): { start: string; end: string } {
-  const start = new Date(year, month - 1, 1, 0, 0, 0);
-  const nextMonthStart = new Date(year, month, 1, 0, 0, 0);
-  const end = new Date(nextMonthStart.getTime() - 60_000);
-  return {
-    start: toDateTimeLocalValue(start.toISOString()),
-    end: toDateTimeLocalValue(end.toISOString()),
-  };
+function estimateArbitrageRevenue(series: DashboardSeriesPoint[], key: "actual_battery_power_kw" | "mpc_battery_power_kw"): number | null {
+  let total = 0;
+  let hasValue = false;
+  for (const point of series) {
+    const batteryPower = point[key];
+    if (batteryPower === null || batteryPower === undefined) continue;
+    const price = point.buy_price ?? point.sell_price ?? 0.986;
+    total += batteryPower * price * 0.25;
+    hasValue = true;
+  }
+  return hasValue ? Math.round(total * 100) / 100 : null;
+}
+
+function estimateBatteryCycles(series: DashboardSeriesPoint[], key: "actual_soc" | "mpc_soc"): number | null {
+  let previous: number | null = null;
+  let movement = 0;
+  let hasValue = false;
+
+  for (const point of series) {
+    const rawSoc = point[key];
+    if (rawSoc === null || rawSoc === undefined) continue;
+    const socPercent = rawSoc <= 1 ? rawSoc * 100 : rawSoc;
+    if (previous !== null) {
+      movement += Math.abs(socPercent - previous);
+    }
+    previous = socPercent;
+    hasValue = true;
+  }
+
+  return hasValue ? Math.round((movement / 200) * 100) / 100 : null;
+}
+
+function promptForNumber(label: string, current: number | null | undefined): number | null {
+  const nextValue = window.prompt(label, current === null || current === undefined ? "" : String(current));
+  if (nextValue === null) return null;
+  const parsed = Number(nextValue);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+interface ChartFrameProps {
+  title: string;
+  iconClass: string;
+  children: ReactNode;
+  expandedChildren: ReactNode;
+}
+
+function ChartFrame({ title, iconClass, children, expandedChildren }: ChartFrameProps) {
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <article className="chart-card">
+      <div className="chart-card-head">
+        <div className="chart-title">
+          <span className={`flat-icon ${iconClass}`} aria-hidden="true" />
+          <h2>{title}</h2>
+        </div>
+        <button className="icon-button" type="button" onClick={() => setExpanded(true)} aria-label={`放大${title}`}>
+          <span className="flat-icon icon-expand" aria-hidden="true" />
+        </button>
+      </div>
+      {children}
+      {expanded && (
+        <div className="chart-modal" role="dialog" aria-modal="true" aria-label={title}>
+          <div className="chart-modal-panel">
+            <div className="chart-modal-head">
+              <div className="chart-title">
+                <span className={`flat-icon ${iconClass}`} aria-hidden="true" />
+                <h2>{title}</h2>
+              </div>
+              <button className="icon-button" type="button" onClick={() => setExpanded(false)} aria-label="关闭放大图表">
+                <span className="flat-icon icon-close" aria-hidden="true" />
+              </button>
+            </div>
+            <div className="chart-modal-body">{expandedChildren}</div>
+          </div>
+        </div>
+      )}
+    </article>
+  );
+}
+
+interface KpiCompareCardProps {
+  title: string;
+  iconClass: string;
+  factoryValue: string;
+  mpcValue: string;
+}
+
+function KpiCompareCard({ title, iconClass, factoryValue, mpcValue }: KpiCompareCardProps) {
+  return (
+    <div className="compare-card">
+      <div className="compare-card-title">
+        <span className={`flat-icon ${iconClass}`} aria-hidden="true" />
+        <span>{title}</span>
+      </div>
+      <div className="compare-sides">
+        <div>
+          <span>工厂策略</span>
+          <strong>{factoryValue}</strong>
+        </div>
+        <div>
+          <span>MPC策略</span>
+          <strong>{mpcValue}</strong>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export default function App() {
-  const [plantId] = useState(plantFromQuery);
+  const [plantId, setPlantId] = useState(plantFromQuery);
   const [runId] = useState(runFromQuery);
-  const [windowHours, setWindowHours] = useState(24);
-  const [rangeStart, setRangeStart] = useState(() => toDateTimeLocalValue(queryValue("start_time")));
-  const [rangeEnd, setRangeEnd] = useState(() => toDateTimeLocalValue(queryValue("end_time")));
+  const [windowHours] = useState(24);
+  const [rangeStart] = useState(() => toDateTimeLocalValue(queryValue("start_time")));
+  const [rangeEnd] = useState(() => toDateTimeLocalValue(queryValue("end_time")));
   const [refreshCount, setRefreshCount] = useState(0);
   const [data, setData] = useState<DashboardResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [lastLoadedAt, setLastLoadedAt] = useState<Date | null>(null);
+  const [displayData, setDisplayData] = useState<DisplaySeriesResponse | null>(null);
+  const [targetSocOverride, setTargetSocOverride] = useState<number | null>(null);
+  const [targetDemandOverride, setTargetDemandOverride] = useState<number | null>(null);
+  const [optimizationTarget, setOptimizationTarget] = useState(OPTIMIZATION_TARGETS[0].value);
 
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
     setError(null);
-    fetchDashboard(
-      plantId,
-      {
-        windowHours,
-        runId: runId.trim() || undefined,
-        startTime: toApiTime(rangeStart),
-        endTime: toApiTime(rangeEnd),
-      },
-      controller.signal,
-    )
-      .then((nextData) => {
-        setData(nextData);
-        setLastLoadedAt(new Date());
-      })
-      .catch((err: Error) => {
-        if (err.name !== "AbortError") {
+    Promise.allSettled([
+      fetchDashboard(
+        plantId,
+        {
+          windowHours,
+          runId: runId.trim() || undefined,
+          startTime: toApiTime(rangeStart),
+          endTime: toApiTime(rangeEnd),
+        },
+        controller.signal,
+      ),
+      fetchDisplaySeries(
+        plantId,
+        {
+          windowHours: windowHours === 24 ? 24 : 2,
+        },
+        controller.signal,
+      ),
+    ])
+      .then(([dashboardResult, displayResult]) => {
+        if (dashboardResult.status === "fulfilled") {
+          setData(dashboardResult.value);
+          setLastLoadedAt(new Date());
+          setError(null);
+        } else if (dashboardResult.reason?.name !== "AbortError") {
           setData(null);
-          setError(err.message);
+          setError(dashboardResult.reason.message);
+        }
+
+        if (displayResult.status === "fulfilled") {
+          setDisplayData(displayResult.value);
+        } else if (displayResult.reason?.name !== "AbortError") {
+          setDisplayData(null);
         }
       })
       .finally(() => setLoading(false));
@@ -93,155 +216,179 @@ export default function App() {
     return () => window.clearInterval(timer);
   }, []);
 
+  const realtimeSeries = useMemo<DashboardSeriesPoint[]>(() => {
+    if (displayData?.series.length) {
+      return displaySeriesToDashboardSeries(displayData);
+    }
+    return data?.series || [];
+  }, [data?.series, displayData]);
+
   const status = useMemo(() => (data ? dashboardStatus(data) : null), [data]);
   const comparison = data?.comparison;
-  const dataDelay = formatDataDelay(data?.current.time);
   const latestTime = data ? formatChinaTime(data.current.time) : "--";
   const targetPeak = comparison?.mpc_peak_kw ?? comparison?.actual_peak_kw;
   const latestMpcPoint = data?.series
     .slice()
     .reverse()
     .find((point) => point.mpc_soc !== null || point.mpc_battery_power_kw !== null);
-  const targetSoc = latestMpcPoint?.mpc_soc ?? data?.current.soc;
-  const selectedMonth = useMemo(() => {
-    const match = rangeStart.match(/^(\d{4})-(\d{2})-/);
-    return match ? String(Number(match[2])) : "";
-  }, [rangeStart]);
+  const targetSoc = targetSocOverride ?? latestMpcPoint?.mpc_soc ?? data?.current.soc;
+  const targetDemand = targetDemandOverride ?? targetPeak;
+  const factoryArbitrageRevenue = estimateArbitrageRevenue(data?.series || [], "actual_battery_power_kw");
+  const mpcArbitrageRevenue = estimateArbitrageRevenue(data?.series || [], "mpc_battery_power_kw");
+  const factoryBatteryCycles = estimateBatteryCycles(data?.series || [], "actual_soc");
+  const mpcBatteryCycles = estimateBatteryCycles(data?.series || [], "mpc_soc");
+  const revenueComparisonOption = buildRevenueComparisonChartOption(0, comparison?.cost_saving_yuan);
+  const demandComparisonOption = buildDemandComparisonChartOption(comparison?.actual_peak_kw, comparison?.mpc_peak_kw);
+  const mpcStatusText = loading ? "运行中" : error ? "异常" : status?.label || "待运行";
 
-  function selectMonth(month: number) {
-    const range = monthRange(2026, month);
-    setRangeStart(range.start);
-    setRangeEnd(range.end);
+  function editTargetSoc() {
+    const nextValue = promptForNumber("请输入目标 SOC（%）", targetSoc === null || targetSoc === undefined ? null : targetSoc <= 1 ? targetSoc * 100 : targetSoc);
+    if (nextValue !== null) setTargetSocOverride(nextValue);
   }
 
-  function selectRealtime() {
-    setRangeStart("");
-    setRangeEnd("");
-    setWindowHours(24);
+  function editTargetDemand() {
+    const nextValue = promptForNumber("请输入目标/给定需量值（kW）", targetDemand);
+    if (nextValue !== null) setTargetDemandOverride(nextValue);
   }
 
   return (
     <main className="app-shell">
       <header className="topbar">
-        <h1>则鸣 EMS 实时演示系统</h1>
+        <div className="topbar-time">
+          <span>{TOPBAR_TIME_LABEL}</span>
+          <strong>{latestTime}</strong>
+        </div>
+        <h1>则鸣AI+ems实时演示系统</h1>
+        <label className="plant-picker">
+          <span>工厂选择</span>
+          <select value={plantId} onChange={(event) => setPlantId(event.target.value)}>
+            {PLANT_OPTIONS.map((plant) => (
+              <option key={plant.value} value={plant.value}>
+                {plant.label}
+              </option>
+            ))}
+          </select>
+        </label>
       </header>
 
       <section className="content">
         <section className="dashboard-grid">
-          <aside className="stat-sidebar">
-            <div className="section-title">
-              <span />
-              <h2>统计数据</h2>
-            </div>
-            <div className="metric-grid">
-              <MetricCard label="当前电网功率" value={formatKw(data?.current.grid_power_kw)} sub="防逆流表聚合值" />
-              <MetricCard label="当前储能功率" value={formatKw(data?.current.battery_power_kw)} sub="储能计量表聚合值" />
-              <MetricCard label="当前 SOC" value={formatSoc(data?.current.soc)} sub="BMS 系统 SOC" />
-              <MetricCard label="数据延迟" value={dataDelay} sub="按北京时间计算" />
-            </div>
-            <div className="reserved-sidebar-space" aria-hidden="true" />
+          <aside className="left-chart-rail" aria-label="收益和需量图表">
+            <ChartFrame
+              title={LEFT_CHART_TITLES[0]}
+              iconClass="icon-bars"
+              expandedChildren={
+                <OptionChart option={revenueComparisonOption} emptyText="暂无收益对比数据" className="modal-chart" />
+              }
+            >
+              <OptionChart option={revenueComparisonOption} emptyText="暂无收益对比数据" className="mini-chart" />
+            </ChartFrame>
+
+            <ChartFrame
+              title={LEFT_CHART_TITLES[1]}
+              iconClass="icon-trend"
+              expandedChildren={<RevenueChart series={data?.series || []} />}
+            >
+              <RevenueChart series={data?.series || []} />
+            </ChartFrame>
+
+            <ChartFrame
+              title={LEFT_CHART_TITLES[2]}
+              iconClass="icon-demand"
+              expandedChildren={
+                <OptionChart option={demandComparisonOption} emptyText="暂无需量对比数据" className="modal-chart" />
+              }
+            >
+              <OptionChart option={demandComparisonOption} emptyText="暂无需量对比数据" className="mini-chart" />
+            </ChartFrame>
           </aside>
 
           <section className="center-stage">
-            <section className="overview-panel">
-              <div className="month-selector" aria-label="时间段选择">
-                {[4, 5, 6].map((month) => (
-                  <button
-                    key={month}
-                    type="button"
-                    className={selectedMonth === String(month) ? "active" : ""}
-                    onClick={() => selectMonth(month)}
-                  >
-                    {month}月
-                  </button>
-                ))}
-                <button type="button" className={!rangeStart && !rangeEnd ? "active" : ""} onClick={selectRealtime}>
-                  实时
-                </button>
+            <article className="main-panel">
+              <div className="main-panel-head">
+                <div className="chart-title">
+                  <span className="flat-icon icon-realtime" aria-hidden="true" />
+                  <h2>实时数据对比</h2>
+                </div>
+                <span className="live-pill">REAL</span>
               </div>
-              <div className="overview-grid">
-                <div>
-                  <span>工厂最大需量</span>
-                  <strong>{formatKw(comparison?.actual_peak_kw)}</strong>
-                </div>
-                <div>
-                  <span>MPC 最大需量</span>
-                  <strong>{formatKw(comparison?.mpc_peak_kw)}</strong>
-                </div>
-                <div>
-                  <span>削峰量</span>
-                  <strong>{formatKw(comparison?.peak_reduction_kw)}</strong>
-                  <small>{formatPercent(comparison?.peak_reduction_pct)}</small>
-                </div>
-                <div>
-                  <span>预计节省</span>
-                  <strong>{formatYuan(comparison?.cost_saving_yuan)}</strong>
-                  <small>{formatPercent(comparison?.cost_saving_pct)}</small>
-                </div>
-              </div>
-            </section>
 
-            <article className="panel power-panel">
-              <div className="panel-head">
-                <div>
-                  <span className="panel-kicker">策略曲线</span>
-                  <h2>工厂策略与 MPC 策略对比</h2>
-                </div>
-                <p>实线为工厂策略，虚线为 MPC 策略；默认展示电网功率，可在图例切换负荷、光伏、储能和 SOC</p>
+              <div className="compare-grid">
+                <KpiCompareCard
+                  title="累计收益"
+                  iconClass="icon-yuan"
+                  factoryValue={formatYuan(0)}
+                  mpcValue={formatYuan(comparison?.cost_saving_yuan)}
+                />
+                <KpiCompareCard
+                  title="最大需量"
+                  iconClass="icon-peak"
+                  factoryValue={formatKw(comparison?.actual_peak_kw)}
+                  mpcValue={formatKw(comparison?.mpc_peak_kw)}
+                />
+                <KpiCompareCard
+                  title="峰谷套利收益"
+                  iconClass="icon-arbitrage"
+                  factoryValue={formatYuan(factoryArbitrageRevenue)}
+                  mpcValue={formatYuan(mpcArbitrageRevenue)}
+                />
+                <KpiCompareCard
+                  title="电池循环次数"
+                  iconClass="icon-cycle"
+                  factoryValue={formatNumber(factoryBatteryCycles, 2)}
+                  mpcValue={formatNumber(mpcBatteryCycles, 2)}
+                />
               </div>
-              <PowerChart series={data?.series || []} />
-            </article>
 
-            <article className="panel revenue-panel">
-              <div className="panel-head">
-                <div>
-                  <span className="panel-kicker">收益数据</span>
-                  <h2>实时收益曲线</h2>
-                </div>
-                <p>按 15 分钟功率差和购电价估算累计收益</p>
-              </div>
-              <RevenueChart series={data?.series || []} />
-            </article>
-
-            <article className="panel detail-panel">
-              <div className="panel-head">
-                <div>
-                  <span className="panel-kicker">历史数据</span>
-                  <h2>15分钟策略明细</h2>
-                </div>
-                <p>实际值与 MPC 输出逐点对照</p>
-              </div>
-              <DetailTable series={data?.series || []} />
+              <ChartFrame
+                title="净负荷 / 电网功率 / 储能功率 / SOC"
+                iconClass="icon-trend"
+                expandedChildren={<PowerChart series={realtimeSeries} />}
+              >
+                <PowerChart series={realtimeSeries} />
+              </ChartFrame>
             </article>
           </section>
 
-          <aside className="status-rail">
+          <aside className="control-rail" aria-label="状态及控制栏">
             <div className="rail-card rail-highlight">
-              <span>MPC 状态</span>
-              <strong>{loading ? "数据加载中" : error ? "数据异常" : status?.label || "等待数据"}</strong>
+              <span>{CONTROL_RAIL_CARD_TITLES[0]}</span>
+              <strong>{mpcStatusText}</strong>
+              <div className="progress-track" aria-hidden="true">
+                <span className={loading ? "running" : ""} />
+              </div>
             </div>
-            <div className="rail-card">
-              <span>当前数据</span>
-              <strong>{latestTime}</strong>
-            </div>
-            <div className="rail-card">
-              <span>数据质量</span>
-              <strong>{data?.current.quality_flag || "--"}</strong>
-            </div>
-            <div className="rail-card">
-              <span>目标峰值</span>
-              <strong>{formatKw(targetPeak)}</strong>
-            </div>
-            <div className="rail-card">
-              <span>目标 SOC</span>
+            <div className="rail-card editable-card">
+              <span>{CONTROL_RAIL_CARD_TITLES[1]}</span>
               <strong>{formatSoc(targetSoc)}</strong>
+              <button type="button" className="mini-action" onClick={editTargetSoc}>
+                修改
+              </button>
             </div>
-            <div className="rail-card">
-              <span>电站 ID</span>
-              <strong>{data?.plant_id || plantId}</strong>
+            <div className="rail-card editable-card">
+              <span>{CONTROL_RAIL_CARD_TITLES[2]}</span>
+              <strong>{formatKw(targetDemand)}</strong>
+              <button type="button" className="mini-action" onClick={editTargetDemand}>
+                修改
+              </button>
             </div>
-            <div className="rail-card">
-              <span>刷新时间</span>
+            <div className="rail-card optimization-card">
+              <span>{CONTROL_RAIL_CARD_TITLES[3]}</span>
+              <div className="piano-switch" role="group" aria-label="优化目标">
+                {OPTIMIZATION_TARGETS.map((target) => (
+                  <button
+                    key={target.value}
+                    type="button"
+                    className={optimizationTarget === target.value ? "active" : ""}
+                    onClick={() => setOptimizationTarget(target.value)}
+                  >
+                    {target.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="rail-card compact-meta">
+              <span>{CONTROL_RAIL_CARD_TITLES[4]}</span>
               <strong>{lastLoadedAt ? formatChinaTime(lastLoadedAt.toISOString()) : "--"}</strong>
             </div>
           </aside>

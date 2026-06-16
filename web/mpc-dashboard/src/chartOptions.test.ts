@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   buildBatteryChartOption,
+  buildDemandComparisonChartOption,
   buildPowerChartOption,
+  buildRevenueComparisonChartOption,
   buildRevenueChartOption,
   buildStrategyChartOption,
 } from "./chartOptions";
@@ -100,6 +102,17 @@ describe("chart option builders", () => {
     ]);
   });
 
+  it("builds compact comparison charts for the left dashboard rail", () => {
+    const revenueOption = buildRevenueComparisonChartOption(1250, 1860);
+    const demandOption = buildDemandComparisonChartOption(420, 360);
+
+    expect(revenueOption.legend.data).toEqual(["收益"]);
+    expect(revenueOption.xAxis.data).toEqual(["工厂策略", "MPC策略"]);
+    expect(revenueOption.series).toMatchObject([{ type: "bar", data: [1250, 1860] }]);
+    expect(demandOption.legend.data).toEqual(["最大需量"]);
+    expect(demandOption.series).toMatchObject([{ type: "line", data: [420, 360] }]);
+  });
+
   it("builds separate strategy card charts for factory and MPC curves", () => {
     const factoryOption = buildStrategyChartOption(sampleSeries, "factory");
     const mpcOption = buildStrategyChartOption(sampleSeries, "mpc");
@@ -121,5 +134,40 @@ describe("chart option builders", () => {
       { name: "储能功率", data: [13.2, null] },
       { name: "SOC", yAxisIndex: 1, data: [54, null] },
     ]);
+  });
+
+  it("power chart tooltip formatter labels display interpolation quality", () => {
+    const option = buildPowerChartOption([
+      {
+        time: "2026-06-16T02:00:00",
+        actual_grid_power_kw: 100,
+        actual_battery_power_kw: 10,
+        actual_soc: 0.5,
+        actual_load_kw: null,
+        actual_pv_kw: null,
+        load_minus_pv_kw: 110,
+        mpc_grid_power_kw: null,
+        mpc_battery_power_kw: null,
+        mpc_soc: null,
+        mpc_load_kw: null,
+        mpc_pv_kw: null,
+        buy_price: null,
+        sell_price: null,
+        quality_flag: "display:interpolated_quadratic",
+        display_quality: {
+          grid_power_kw: "interpolated_quadratic",
+          battery_power_kw: "observed",
+          soc: "observed",
+          load_minus_pv_kw: "derived",
+        },
+      },
+    ]);
+
+    expect(typeof option.tooltip.formatter).toBe("function");
+    const formatter = option.tooltip.formatter as (params: Array<{ seriesName: string; data: number; dataIndex: number }>) => string;
+    const html = formatter([{ seriesName: "工厂电网功率", data: 100, dataIndex: 0 }]);
+
+    expect(html).toContain("工厂电网功率");
+    expect(html).toContain("插值");
   });
 });

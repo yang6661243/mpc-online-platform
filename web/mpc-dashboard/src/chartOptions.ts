@@ -13,19 +13,21 @@ interface AxisOption {
 
 interface SeriesOption {
   name: string;
-  type: "line";
-  showSymbol: boolean;
-  smooth: boolean;
+  type: "line" | "bar";
+  showSymbol?: boolean;
+  smooth?: boolean;
   yAxisIndex?: number;
   data: Array<number | null>;
   lineStyle?: Record<string, string | number>;
+  itemStyle?: Record<string, unknown>;
+  barWidth?: string | number;
   markLine?: Record<string, unknown>;
 }
 
 export interface DashboardChartOption {
   [key: string]: unknown;
   color: string[];
-  tooltip: { trigger: "axis" };
+  tooltip: { trigger: "axis"; formatter?: (params: Array<{ seriesName: string; data: number | null; dataIndex: number }>) => string };
   legend: Record<string, unknown> & { top: number; data: string[] };
   grid: Record<string, number>;
   xAxis: AxisOption;
@@ -53,6 +55,28 @@ function hasData(values: Array<number | null | undefined>): boolean {
 
 function valueOrNull(value: number | null | undefined): number | null {
   return value === undefined ? null : value;
+}
+
+function qualityLabel(point: DashboardSeriesPoint, seriesName: string): string {
+  const quality = point.display_quality;
+  if (!quality) return "";
+  const field =
+    seriesName === "工厂电网功率"
+      ? quality.grid_power_kw
+      : seriesName === "工厂储能功率"
+        ? quality.battery_power_kw
+        : seriesName === "工厂SOC"
+          ? quality.soc
+          : "";
+  if (field === "observed") return "真实";
+  if (field === "interpolated_quadratic") return "插值";
+  if (field === "gap") return "缺口";
+  if (field === "derived") return "派生";
+  return "";
+}
+
+function formatTooltipValue(value: number | null): string {
+  return value === null || value === undefined ? "--" : String(value);
 }
 
 export function buildPowerChartOption(series: DashboardSeriesPoint[]): DashboardChartOption {
@@ -113,7 +137,19 @@ export function buildPowerChartOption(series: DashboardSeriesPoint[]): Dashboard
   return {
     color: ["#4ecdc4", "#4ecdc4", "#ff6b6b", "#ff6b6b", "#ffd166", "#ffd166", "#f39c12", "#f39c12", "#9b59b6", "#9b59b6"],
     textStyle: darkChartText,
-    tooltip: { trigger: "axis" },
+    tooltip: {
+      trigger: "axis",
+      formatter: (params) => {
+        return params
+          .map((param) => {
+            const point = series[param.dataIndex];
+            const label = point ? qualityLabel(point, param.seriesName) : "";
+            const suffix = label ? ` (${label})` : "";
+            return `${param.seriesName}: ${formatTooltipValue(param.data)}${suffix}`;
+          })
+          .join("<br/>");
+      },
+    },
     legend: { top: 4, type: "scroll", data: legendData, selected },
     grid: { left: 54, right: 58, top: 62, bottom: 42 },
     xAxis: {
@@ -166,6 +202,64 @@ export function buildRevenueChartOption(series: DashboardSeriesPoint[]): Dashboa
         showSymbol: false,
         smooth: true,
         data: revenue,
+      },
+    ],
+  };
+}
+
+export function buildRevenueComparisonChartOption(factoryRevenue: number | null | undefined, mpcRevenue: number | null | undefined): DashboardChartOption {
+  const factory = valueOrNull(factoryRevenue);
+  const mpc = valueOrNull(mpcRevenue);
+
+  return {
+    color: ["#38d8a8"],
+    textStyle: darkChartText,
+    tooltip: { trigger: "axis" },
+    legend: { top: 4, data: ["收益"] },
+    grid: { left: 42, right: 18, top: 38, bottom: 28 },
+    xAxis: {
+      type: "category",
+      data: ["工厂策略", "MPC策略"],
+    },
+    yAxis: { type: "value", name: "元", scale: true },
+    dataZoom: [{ type: "inside" }],
+    series: [
+      {
+        name: "收益",
+        type: "bar",
+        barWidth: "46%",
+        data: [factory, mpc],
+        itemStyle: {
+          color: (params: { dataIndex: number }) => (params.dataIndex === 0 ? "#8db6c9" : "#38d8a8"),
+          borderRadius: [4, 4, 0, 0],
+        },
+      },
+    ],
+  };
+}
+
+export function buildDemandComparisonChartOption(factoryDemand: number | null | undefined, mpcDemand: number | null | undefined): DashboardChartOption {
+  return {
+    color: ["#39d9ff"],
+    textStyle: darkChartText,
+    tooltip: { trigger: "axis" },
+    legend: { top: 4, data: ["最大需量"] },
+    grid: { left: 42, right: 18, top: 38, bottom: 28 },
+    xAxis: {
+      type: "category",
+      data: ["工厂策略", "MPC策略"],
+      boundaryGap: false,
+    },
+    yAxis: { type: "value", name: "kW", scale: true },
+    dataZoom: [{ type: "inside" }],
+    series: [
+      {
+        name: "最大需量",
+        type: "line",
+        showSymbol: true,
+        smooth: true,
+        data: [valueOrNull(factoryDemand), valueOrNull(mpcDemand)],
+        lineStyle: { width: 2.6 },
       },
     ],
   };
