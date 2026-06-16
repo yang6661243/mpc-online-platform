@@ -93,7 +93,7 @@ describe("chart option builders", () => {
   it("builds a cumulative revenue chart from actual and MPC grid power", () => {
     const option = buildRevenueChartOption(sampleSeries);
 
-    expect(option.legend).toEqual({ top: 4, data: ["累计收益"] });
+    expect(option.legend).toEqual({ top: 4, data: ["累计收益"], textStyle: { color: "#a9c9d8" } });
     expect(option.series).toMatchObject([
       {
         name: "累计收益",

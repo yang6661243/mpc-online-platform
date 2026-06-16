@@ -20,7 +20,7 @@ describe("dashboard layout styles", () => {
   it("defines the single-screen EMS dashboard layout sections", () => {
     expect(PLANT_OPTIONS).toEqual([
       { label: "和宏华进", value: "hehong_huajin" },
-      { label: "奥来德", value: "aolaide" },
+      { label: "奥来德", value: "ecloud_station_3341" },
     ]);
     expect(LEFT_CHART_TITLES).toEqual(["收益对比图", "收益折线图", "需量对比图"]);
     expect(MAIN_KPI_TITLES).toEqual(["累计收益", "最大需量", "峰谷套利收益", "电池循环次数"]);
@@ -32,8 +32,8 @@ describe("dashboard layout styles", () => {
   });
 
   it("keeps the revised control rail and card styling copy", () => {
-    expect(TOPBAR_TIME_LABEL).toBe("最新数据获取时间");
-    expect(CONTROL_RAIL_CARD_TITLES).toEqual(["MPC 状态", "目标 SOC", "目标/给定需量值", "优化目标", "刷新时间"]);
+    expect(TOPBAR_TIME_LABEL).toBe("数据获取时间");
+    expect(CONTROL_RAIL_CARD_TITLES).toEqual(["MPC 状态", "目标 SOC", "目标/给定需量值", "优化目标", "刷新时间", "数据导入"]);
     expect(CONTROL_RAIL_CARD_TITLES).not.toContain("数据质量");
   });
 
