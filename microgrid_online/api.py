@@ -16,6 +16,8 @@ from microgrid_online.aggregation import aggregate_telemetry_15min
 from microgrid_online.dashboard_data import build_dashboard_payload, comparison_payload
 from microgrid_online.dashboard_page import render_dashboard_page
 from microgrid_online.data_health import build_data_health_payload
+from microgrid_online.display_series import build_display_series_payload
+from microgrid_online.time_utils import parse_timestamp
 from microgrid_online.database import create_session_factory
 from microgrid_online.ingestion import ingest_battery_records, ingest_grid_records
 from microgrid_online.input_mapping import normalize_input_records
@@ -353,6 +355,26 @@ def create_app(
             start_time=start_time,
             end_time=end_time,
         )
+
+    @app.get("/api/v1/plants/{plant_id}/display-series")
+    def display_series(
+        plant_id: str,
+        window_hours: int = Query(default=2),
+        reference_time: str | None = None,
+        max_gap_minutes: int = Query(default=5, gt=0),
+        session: Session = Depends(get_session),
+    ):
+        plant_id = normalize_plant_id(plant_id)
+        try:
+            return build_display_series_payload(
+                session,
+                plant_id=plant_id,
+                reference_time=parse_timestamp(reference_time) if reference_time else None,
+                window_hours=window_hours,
+                max_gap_minutes=max_gap_minutes,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @app.get("/api/v1/plants/{plant_id}/data-health")
     def data_health(

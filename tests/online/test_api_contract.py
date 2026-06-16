@@ -415,3 +415,60 @@ def test_dashboard_endpoint_rejects_window_hours_outside_supported_range():
     response = client.get("/api/v1/plants/aodelai/dashboard?window_hours=169")
 
     assert response.status_code == 422
+
+
+def test_display_series_endpoint_returns_display_only_raw_series():
+    session = create_sqlite_memory_session()
+    client = TestClient(create_app(session_factory=lambda: session))
+    client.post(
+        "/api/v1/mpc/input-data",
+        json={
+            "request_id": "req_grid_display",
+            "plant_id": "aodelai",
+            "data_type": "grid_meter",
+            "generated_at": "2026-06-12T10:15:00+08:00",
+            "records": [
+                {"time": "2026-06-12T10:00:00+08:00", "grid_power_kw": 400.0},
+                {"time": "2026-06-12T10:02:00+08:00", "grid_power_kw": 440.0},
+                {"time": "2026-06-12T10:04:00+08:00", "grid_power_kw": 520.0},
+            ],
+        },
+    )
+    client.post(
+        "/api/v1/mpc/input-data",
+        json={
+            "request_id": "req_battery_display",
+            "plant_id": "aodelai",
+            "data_type": "battery",
+            "generated_at": "2026-06-12T10:15:00+08:00",
+            "records": [
+                {"time": "2026-06-12T10:00:00+08:00", "battery_power_kw": 20.0, "soc": 0.60},
+                {"time": "2026-06-12T10:02:00+08:00", "battery_power_kw": 30.0, "soc": 0.58},
+                {"time": "2026-06-12T10:04:00+08:00", "battery_power_kw": 40.0, "soc": 0.56},
+            ],
+        },
+    )
+
+    response = client.get(
+        "/api/v1/plants/aodelai/display-series",
+        params={"window_hours": 2, "reference_time": "2026-06-12T10:04:00+08:00"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["plant_id"] == "aodelai"
+    assert body["display_only"] is True
+    assert body["step_minutes"] == 1
+    assert body["series"][-1]["time"] == "2026-06-12T02:04:00"
+    assert body["series"][-1]["grid_power_kw"] == 520.0
+    assert body["series"][-1]["quality"]["grid_power_kw"] == "observed"
+
+
+def test_display_series_endpoint_rejects_unsupported_window():
+    session = create_sqlite_memory_session()
+    client = TestClient(create_app(session_factory=lambda: session))
+
+    response = client.get("/api/v1/plants/aodelai/display-series", params={"window_hours": 3})
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "window_hours must be one of 2, 6, or 24"
