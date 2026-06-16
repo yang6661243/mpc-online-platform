@@ -165,23 +165,31 @@ def import_mpc_run_from_excel(
     session.add(run)
 
     # 插入曲线点
+    # 工厂策略 = 无电池调度: 电网=负荷-光伏, 电池=0, SOC=固定初始值
+    # MPC 策略 = 优化后: 电网/电池/SOC 来自 Excel MPC 结果
     curve_points = []
     for row in rows:
+        load = row.get("mpc_load_kw")
+        pv = row.get("mpc_pv_kw")
+        factory_grid = round(load - pv, 6) if load is not None and pv is not None else None
+
         point = StrategyCurvePoint(
             run_id=run_id,
             plant_id=plant_id,
             time=row["time"],
-            actual_grid_power_kw=None,
-            actual_battery_power_kw=None,
-            actual_soc=None,
-            actual_load_kw=None,
-            actual_pv_kw=None,
+            # 工厂策略（无电池）
+            actual_grid_power_kw=factory_grid,
+            actual_battery_power_kw=0.0,
+            actual_soc=0.5,
+            actual_load_kw=load,
+            actual_pv_kw=pv,
+            # MPC 策略（优化后）
             load_minus_pv_kw=row.get("load_minus_pv_kw"),
             mpc_grid_power_kw=row.get("mpc_grid_power_kw"),
             mpc_battery_power_kw=row.get("mpc_battery_power_kw"),
             mpc_soc=row.get("mpc_soc"),
-            mpc_load_kw=row.get("mpc_load_kw"),
-            mpc_pv_kw=row.get("mpc_pv_kw"),
+            mpc_load_kw=load,
+            mpc_pv_kw=pv,
             buy_price=row.get("buy_price"),
             sell_price=row.get("sell_price"),
         )
@@ -192,14 +200,19 @@ def import_mpc_run_from_excel(
     costs = _read_cost_summary(file_bytes)
 
     mpc_peak_kw = _compute_peak_kw(rows, "mpc_grid_power_kw")
+    # 工厂峰值 = 无电池调度的电网最大需量
+    factory_peak_kw = _compute_peak_kw([{
+        "grid": round(r["mpc_load_kw"] - r["mpc_pv_kw"], 6)
+        if r.get("mpc_load_kw") is not None and r.get("mpc_pv_kw") is not None else None
+    } for r in rows], "grid")
 
     comparison = StrategyComparison(
         run_id=run_id,
         plant_id=plant_id,
-        actual_peak_kw=None,
+        actual_peak_kw=factory_peak_kw,
         mpc_peak_kw=mpc_peak_kw,
-        peak_reduction_kw=None,
-        peak_reduction_pct=None,
+        peak_reduction_kw=round(factory_peak_kw - mpc_peak_kw, 4) if factory_peak_kw is not None and mpc_peak_kw is not None else None,
+        peak_reduction_pct=round((factory_peak_kw - mpc_peak_kw) / factory_peak_kw * 100, 2) if factory_peak_kw and factory_peak_kw > 0 and mpc_peak_kw is not None else None,
         actual_cost_yuan=costs.get("MILP 基准"),
         mpc_cost_yuan=costs.get("购电费(元)"),
         cost_saving_yuan=costs.get("套利收益(元)"),
