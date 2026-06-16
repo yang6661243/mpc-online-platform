@@ -399,6 +399,14 @@ export default function App() {
                   <h2>实时数据对比</h2>
                 </div>
                 <div className="main-panel-head-actions">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".xlsx,.xls"
+                    style={{ display: "none" }}
+                    onChange={handleImportExcel}
+                    aria-label="导入 MPC 结果 Excel"
+                  />
                   <select
                     className="month-picker"
                     value={selectedMonth}
@@ -411,24 +419,6 @@ export default function App() {
                       </option>
                     ))}
                   </select>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept=".xlsx,.xls"
-                    style={{ display: "none" }}
-                    onChange={handleImportExcel}
-                    aria-label="导入 MPC 结果 Excel"
-                  />
-                  <button
-                    type="button"
-                    className="import-button"
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={importing}
-                    title={`导入线下 MPC 结果（${optimizationTarget}）`}
-                  >
-                    {importing ? "导入中..." : "📥 导入"}
-                  </button>
-                  {importError && <span className="import-error" title={importError}>导入失败</span>}
                 </div>
               </div>
 
@@ -505,9 +495,16 @@ export default function App() {
             </div>
             <div className="rail-card data-import-card">
               <span>{CONTROL_RAIL_CARD_TITLES[5]}</span>
-              <button type="button" className="import-action">
-                导入电站历史数据
+              <button
+                type="button"
+                className="import-action"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={importing}
+                title={`导入线下 MPC 结果（${optimizationTarget}）`}
+              >
+                {importing ? "导入中..." : "导入电站历史数据"}
               </button>
+              {importError && <span className="import-error" title={importError}>导入失败</span>}
             </div>
           </aside>
         </section>
