@@ -79,7 +79,7 @@ MPC 运行只接受 `quality_flag = ok` 的连续窗口。
 维护命令默认是 dry-run，只统计将要删除的行，不创建备份，也不删除数据：
 
 ```bash
-python -m microgrid_online.db_maintenance \
+python -m api.db_maintenance \
   --database-url sqlite:////app/data/mpc_online.db \
   --backup-dir /app/data/backups
 ```
@@ -87,7 +87,7 @@ python -m microgrid_online.db_maintenance \
 实际执行时必须显式传 `--execute`。执行流程是先创建 SQLite 备份，再删除过期数据：
 
 ```bash
-python -m microgrid_online.db_maintenance \
+python -m api.db_maintenance \
   --database-url sqlite:////app/data/mpc_online.db \
   --backup-dir /app/data/backups \
   --execute
@@ -111,7 +111,7 @@ MPC_BACKUP_RETENTION_DAYS=30
 Docker 宿主机 cron 示例：
 
 ```cron
-15 3 * * * docker exec mpc-online-platform python -m microgrid_online.db_maintenance --execute >> /opt/mpc-online/data/db_maintenance.log 2>&1
+15 3 * * * docker exec mpc-online-platform python -m api.db_maintenance --execute >> /opt/mpc-online/data/db_maintenance.log 2>&1
 ```
 
 执行前提：

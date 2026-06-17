@@ -1,0 +1,52 @@
+# 奥来德电站静态配置。
+# 该文件只描述电站本身，不放模型训练参数、MPC 求解参数或线上部署参数。
+plant_id: ecloud_station_3341
+name: 奥来德
+
+location:
+  latitude: 31.12
+  longitude: 120.55
+  timezone: Asia/Shanghai
+
+battery:
+  power_kw: 600
+  capacity_kwh: 1044
+  soc_min: 0.1
+  soc_max: 0.9
+  soc_init: 0.5
+  charge_efficiency: 0.95
+  discharge_efficiency: 0.95
+
+pv:
+  capacity_kw: 0
+  performance_ratio: 0.8
+
+wind:
+  capacity_kw: 0
+
+grid:
+  anti_backflow: true
+  import_max_kw: 5000
+  export_max_kw: 0
+  transformer_capacity_kw: 5000
+
+tariff:
+  name: 35kV 上海大工业两部制
+  demand_charge_yuan_per_kw_month: 39
+  periods:
+    - name: 谷
+      price_yuan_per_kwh: 0.241
+      ranges:
+        - ["00:00", "06:00"]
+        - ["22:00", "24:00"]
+    - name: 平
+      price_yuan_per_kwh: 0.609
+      ranges:
+        - ["06:00", "08:00"]
+        - ["11:00", "18:00"]
+        - ["21:00", "22:00"]
+    - name: 峰
+      price_yuan_per_kwh: 0.986
+      ranges:
+        - ["08:00", "11:00"]
+        - ["18:00", "21:00"]

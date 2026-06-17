@@ -19,7 +19,7 @@ pip install -r requirements.txt
 | `price` | 购售电价 | 时间, 购电价, 售电价 |
 | `train_mar` | 训练用负荷 | 时间, 有功 |
 
-参考：`scenarios/hehonghuajin.xlsx`
+参考：`mpc/scenarios/hehonghuajin.xlsx`
 
 ## 三个命令
 
@@ -28,19 +28,19 @@ pip install -r requirements.txt
 ### 1. 训练负荷预测模型
 
 ```bash
-python -m microgrid.forecaster --config examples/forecaster.yaml --profile hehong_weather
+python -m mpc.microgrid.forecaster --config mpc/configs/examples/forecaster.yaml --profile hehong_weather
 ```
 
 ### 2. 跑 MILP 最优求解
 
 ```bash
-python -m microgrid.solver --config examples/solver.yaml --profile hehong
+python -m mpc.microgrid.solver --config mpc/configs/examples/solver.yaml --profile hehong
 ```
 
 ### 3. 跑 MPC 滚动调度
 
 ```bash
-python -m microgrid.mpc --config examples/mpc.yaml --profile hehong_weather
+python -m mpc.microgrid.mpc --config mpc/configs/examples/mpc.yaml --profile hehong_weather
 ```
 
 ## 配置文件
@@ -48,7 +48,7 @@ python -m microgrid.mpc --config examples/mpc.yaml --profile hehong_weather
 ```yaml
 # 数据文件
 scenario:
-  data_file: scenarios/hehonghuajin.xlsx
+  data_file: mpc/scenarios/hehonghuajin.xlsx
   sheets:
     load: load_apr        # 负荷数据所在 sheet
     pv_wind: pv_apr       # 光伏/风电数据所在 sheet
@@ -94,7 +94,7 @@ output: outputs/result.xlsx
 forecaster 配置额外需要：
 ```yaml
 data:
-  file: scenarios/hehonghuajin.xlsx
+  file: mpc/scenarios/hehonghuajin.xlsx
   sheet: train_mar
 model_path: outputs/models/my_model.joblib
 train_ratio: 0.8

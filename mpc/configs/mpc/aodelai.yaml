@@ -1,0 +1,72 @@
+# 奥来德 MPC 配置（无光伏）
+# python -m microgrid.mpc --config configs/mpc/aodelai.yaml
+
+battery:
+  capacity_kwh: 783
+  charge_max_kw: 375
+  discharge_max_kw: 375
+  soc_init: 0.5
+  soc_min: 0.1
+  soc_max: 0.9
+  charge_eff: 0.95
+  discharge_eff: 0.95
+
+device:
+  load_base_kw: 1300
+  pv_capacity_kw: 0
+  pv_efficiency: 0
+  wind_capacity_kw: 0
+  wind_efficiency: 0
+
+grid:
+  anti_backflow: true
+  import_max_kw: 5000
+  export_max_kw: 0
+  transformer_capacity_kw: 5000
+
+cost:
+  c_deg: 0.05
+  demand_rate: 39.0
+  capacity_rate: 0
+  billing_days: 30
+
+scenario:
+  data_file: scenarios/aodelai_new.xlsx
+  sheets:
+    load: load_may
+    pv_wind: pv_may
+    price: price
+
+mpc:
+  days: 30
+  horizon_steps: 192
+  forecast_mode: lightgbm
+  model_path: outputs/models/aodelai_new_base.joblib
+  start_step: 0
+  peak_slack_penalty: 5000
+  target_peak_mode: oracle_full_period
+  target_peak_kw: null
+  reserve_soc_enabled: false
+  reserve_energy_enabled: true
+  reserve_error_quantile: 0.90
+  reserve_error_lookback_days: 3
+  reserve_error_warmup_kw: 100
+  reserve_error_min_kw: 30
+  reserve_error_max_kw: 150
+  reserve_error_min_samples: 96
+  reserve_lead_hours: 2
+  reserve_slack_penalty: 20
+
+vpp:
+  enabled: false
+
+forecast_history:
+  data_file: scenarios/aodelai_new.xlsx
+  sheet: train_apr
+  unit: ratio
+
+forecast_covariates:
+  holiday_calendar_file: scenarios/china_public_holiday_calendar_2026.xlsx
+  holiday_calendar_sheet: calendar
+
+output: outputs/aodelai_new_mpc_may2026.xlsx

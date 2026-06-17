@@ -1,0 +1,6 @@
+# 奥来德 · 40%需量+峰谷套利
+# 服务商获得 40% 需量优化收益，60% 分给业主，倾向套利
+profile: demand40
+plant: ecloud_station_3341
+demand_rate: 15.6
+target_peak_ratio: 0.40

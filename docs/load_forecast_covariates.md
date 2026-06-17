@@ -11,22 +11,22 @@
 
 | 文件 | 说明 |
 |------|------|
-| `models/forecasting/covariates.py` | 协变量模块：日历特征生成、天气对齐、预测窗口提取 |
+| `ml_core/forecasting/covariates.py` | 协变量模块：日历特征生成、天气对齐、预测窗口提取 |
 | `tests/test_forecasting_covariates.py` | 协变量和特征集成的完整测试（54 个测试） |
 
 ## 修改文件
 
 | 文件 | 改动 |
 |------|------|
-| `models/forecasting/features.py` | build_features/prepare_prediction_row 支持 covariates/future_covariates 参数 |
-| `models/forecasting/load_forecaster.py` | train/predict/evaluate/save/load 扩展协变量支持，向后兼容 |
-| `models/forecasting/metrics.py` | 新增 compute_peak_risk_metrics |
-| `models/forecasting/config.yaml` | 新增 covariates 配置段 |
-| `models/forecasting/__init__.py` | 导出新函数 |
+| `ml_core/forecasting/features.py` | build_features/prepare_prediction_row 支持 covariates/future_covariates 参数 |
+| `ml_core/forecasting/load_forecaster.py` | train/predict/evaluate/save/load 扩展协变量支持，向后兼容 |
+| `ml_core/forecasting/metrics.py` | 新增 compute_peak_risk_metrics |
+| `ml_core/forecasting/config.yaml` | 新增 covariates 配置段 |
+| `ml_core/forecasting/__init__.py` | 导出新函数 |
 | `microgrid/forecaster.py` | 训练脚本读取协变量配置并传入模型 |
 | `microgrid/mpc.py` | MPC 运行时读取未来协变量并传入预测 |
-| `examples/forecaster.yaml` | 在 `hehong_weather` 等 profile 中配置 covariates |
-| `examples/mpc.yaml` | 在 `hehong_weather` 等 profile 中配置 forecast_covariates |
+| `configs/examples/forecaster.yaml` | 在 `hehong_weather` 等 profile 中配置 covariates |
+| `configs/examples/mpc.yaml` | 在 `hehong_weather` 等 profile 中配置 forecast_covariates |
 
 ## 核心接口
 
@@ -90,7 +90,7 @@ metrics = compute_peak_risk_metrics(actual, predicted)
 
 ## 配置方法
 
-### 训练配置 (examples/forecaster.yaml --profile hehong_weather)
+### 训练配置 (configs/examples/forecaster.yaml --profile hehong_weather)
 
 ```yaml
 features:
@@ -112,7 +112,7 @@ covariates:
     humidity_pct: [humidity, 湿度]
 ```
 
-### MPC 配置 (examples/mpc.yaml --profile hehong_weather)
+### MPC 配置 (configs/examples/mpc.yaml --profile hehong_weather)
 
 ```yaml
 forecast_covariates:
@@ -192,8 +192,8 @@ pytest tests/ -q
 python -m compileall microgrid models tests
 
 # YAML 配置检查
-python -c "import yaml; from pathlib import Path; [yaml.safe_load(Path(p).read_text(encoding='utf-8')) for p in ['models/forecasting/config.yaml','examples/forecaster.yaml','examples/mpc.yaml']]; print('ok')"
+python -c "import yaml; from pathlib import Path; [yaml.safe_load(Path(p).read_text(encoding='utf-8')) for p in ['ml_core/forecasting/config.yaml','mpc/configs/examples/forecaster.yaml','mpc/configs/examples/mpc.yaml']]; print('ok')"
 
 # 真实数据训练（天气数据到位后）
-python -m microgrid.forecaster --config examples/forecaster.yaml --profile hehong_weather
+python -m mpc.microgrid.forecaster --config configs/examples/forecaster.yaml --profile hehong_weather
 ```

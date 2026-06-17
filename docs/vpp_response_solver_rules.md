@@ -150,7 +150,7 @@ response_cap_kw   可选结算功率上限；null 表示不额外设置上限
 
 ## 7. 代码位置
 
-核心求解器位于 `models/benchmark/solver.py`：
+核心求解器位于 `ml_core/benchmark/solver.py`：
 
 ```python
 m.T_vpp = pyo.Set(initialize=_vpp_indices, ordered=True)

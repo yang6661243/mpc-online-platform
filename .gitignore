@@ -26,10 +26,10 @@ temp/
 
 # 工厂原始数据、天气数据、节假日 Excel 通常包含客户或项目数据。
 # 上线时通过服务器挂载目录提供，不随源码仓库或镜像发布。
-scenarios/*.xlsx
-scenarios/*.xls
-scenarios/*.csv
-scenarios/*.tsv
+mpc/scenarios/*.xlsx
+mpc/scenarios/*.xls
+mpc/scenarios/*.csv
+mpc/scenarios/*.tsv
 
 .codex/
 .idea/
@@ -38,8 +38,8 @@ scenarios/*.tsv
 *.log
 
 # 前端依赖和构建产物不提交；Docker/CI 根据 package-lock.json 重新构建。
-web/mpc-dashboard/node_modules/
-web/mpc-dashboard/dist/
-web/mpc-dashboard/*.tsbuildinfo
-web/mpc-dashboard/vite.config.js
-web/mpc-dashboard/vite.config.d.ts
+node_modules/
+dist/
+*.tsbuildinfo
+vite.config.js
+vite.config.d.ts

@@ -1,0 +1,23 @@
+services:
+  mpc-online:
+    build:
+      context: .
+      dockerfile: server/deploy/Dockerfile
+    image: ${MPC_ONLINE_LOCAL_IMAGE:-mpc-online-platform:latest}
+    container_name: ${MPC_ONLINE_CONTAINER_NAME:-mpc-online-platform}
+    restart: unless-stopped
+    ports:
+      - "${MPC_ONLINE_PORT:-8000}:8000"
+    environment:
+      MPC_DATABASE_URL: ${MPC_DATABASE_URL:-sqlite:////app/data/mpc_online.db}
+      MPC_INPUT_SIGNATURE_SECRET: ${MPC_INPUT_SIGNATURE_SECRET:-}
+    volumes:
+      - ./data:/app/data
+      - ./outputs:/app/outputs
+      - ./scenarios:/app/scenarios
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s

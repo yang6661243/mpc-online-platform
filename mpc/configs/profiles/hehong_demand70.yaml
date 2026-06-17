@@ -1,0 +1,6 @@
+# 和宏华进 · 70%需量+峰谷套利
+# 服务商获得 70% 需量优化收益，30% 分给业主，适度压需量
+profile: demand70
+plant: hehong_huajin
+demand_rate: 27.3
+target_peak_ratio: 0.70

@@ -1,0 +1,34 @@
+# 奥来德 负荷预测模型配置
+# python -m microgrid.forecaster --config configs/forecaster/aodelai.yaml --profile base
+
+active_profile: base
+
+profiles:
+  base:
+    model:
+      type: lightgbm_direct_horizon
+      horizon_steps: 192
+      min_history_steps: 672
+    data:
+      file: scenarios/aodelai_new.xlsx
+      sheet: train_apr
+      train_ratio: 0.8
+    model_path: outputs/models/aodelai_new_base.joblib
+    train_ratio: 0.8
+    evaluate:
+      horizon_steps: 192
+      backtest_every: 16
+      eval_excel: outputs/aodelai_new_base_evaluation.xlsx
+    covariates:
+      holiday_calendar_file: scenarios/china_public_holiday_calendar_2026.xlsx
+      holiday_calendar_sheet: calendar
+    features:
+      lags: [1, 2, 3, 96, 672]
+      rolling_windows: [96]
+      calendar: true
+      cyclical: true
+      external_columns:
+        - is_public_holiday
+        - is_adjusted_workday
+        - is_day_before_holiday
+        - is_day_after_holiday

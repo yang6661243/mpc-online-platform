@@ -1,0 +1,6 @@
+# 奥来德 · 100%需量+峰谷套利
+# 服务商获得 100% 需量优化收益，MPC 激进压需量
+profile: demand100
+plant: ecloud_station_3341
+demand_rate: 39.0
+target_peak_ratio: 1.0

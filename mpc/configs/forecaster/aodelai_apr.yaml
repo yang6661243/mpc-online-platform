@@ -1,0 +1,30 @@
+active_profile: base
+profiles:
+  base:
+    model:
+      type: lightgbm_direct_horizon
+      horizon_steps: 192
+      min_history_steps: 672
+    data:
+      file: scenarios/aodelai_apr.xlsx
+      sheet: train
+      train_ratio: 0.8
+    model_path: outputs/models/aodelai_apr_base.joblib
+    train_ratio: 0.8
+    evaluate:
+      horizon_steps: 192
+      backtest_every: 16
+      eval_excel: outputs/aodelai_apr_base_evaluation.xlsx
+    covariates:
+      holiday_calendar_file: scenarios/china_public_holiday_calendar_2026.xlsx
+      holiday_calendar_sheet: calendar
+    features:
+      lags: [1, 2, 3, 96, 672]
+      rolling_windows: [96]
+      calendar: true
+      cyclical: true
+      external_columns:
+        - is_public_holiday
+        - is_adjusted_workday
+        - is_day_before_holiday
+        - is_day_after_holiday

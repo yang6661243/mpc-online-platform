@@ -1,0 +1,82 @@
+# ============================================================
+# 和宏华进 新数据 负荷预测模型配置
+# 用法：
+#   python -m microgrid.forecaster --config configs/forecaster/hehong_new.yaml --profile base
+#   python -m microgrid.forecaster --config configs/forecaster/hehong_new.yaml --profile weather
+# ============================================================
+
+active_profile: base
+
+profiles:
+  base: # 仅日历特征
+    model:
+      type: lightgbm_direct_horizon
+      horizon_steps: 192
+      min_history_steps: 672
+    data:
+      file: scenarios/hehonghuajin_new.xlsx
+      sheet: train_apr
+      train_ratio: 0.8
+    model_path: outputs/models/hehonghuajin_new_base.joblib
+    train_ratio: 0.8
+    evaluate:
+      horizon_steps: 192
+      backtest_every: 16
+      eval_excel: outputs/hehonghuajin_new_base_evaluation.xlsx
+    covariates:
+      holiday_calendar_file: scenarios/china_public_holiday_calendar_2026.xlsx
+      holiday_calendar_sheet: calendar
+    features:
+      lags: [1, 2, 3, 96, 672]
+      rolling_windows: [96]
+      calendar: true
+      cyclical: true
+      external_columns:
+        - is_public_holiday
+        - is_adjusted_workday
+        - is_day_before_holiday
+        - is_day_after_holiday
+
+  weather: # 日历 + 天气协变量
+    model:
+      type: lightgbm_direct_horizon
+      horizon_steps: 192
+      min_history_steps: 672
+    data:
+      file: scenarios/hehonghuajin_new.xlsx
+      sheet: train_apr
+      train_ratio: 0.8
+    model_path: outputs/models/hehonghuajin_new_weather.joblib
+    train_ratio: 0.8
+    evaluate:
+      horizon_steps: 192
+      backtest_every: 16
+      eval_excel: outputs/hehonghuajin_new_weather_evaluation.xlsx
+    covariates:
+      holiday_calendar_file: scenarios/china_public_holiday_calendar_2026.xlsx
+      holiday_calendar_sheet: calendar
+      historical_weather_file: scenarios/hehong_weather_forecast_open_meteo_apr.xlsx
+      historical_weather_sheet: Sheet1
+      weather_columns:
+        temperature_c: [temperature, temp, 温度]
+        humidity_pct: [humidity, 湿度]
+        shortwave_radiation: [shortwave_radiation]
+        cloud_cover: [cloud_cover]
+        precipitation: [precipitation]
+        weather_code: [weather_code]
+    features:
+      lags: [1, 2, 3, 96, 672]
+      rolling_windows: [96]
+      calendar: true
+      cyclical: true
+      external_columns:
+        - is_public_holiday
+        - is_adjusted_workday
+        - is_day_before_holiday
+        - is_day_after_holiday
+        - temperature_c
+        - humidity_pct
+        - shortwave_radiation
+        - cloud_cover
+        - precipitation
+        - weather_code

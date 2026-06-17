@@ -1,0 +1,50 @@
+# Load forecasting model configuration
+
+# Model type: lightgbm_recursive (Phase 1), skforecast_direct (Phase 2)
+model:
+  type: lightgbm_recursive      # lightgbm_recursive | lightgbm_direct_horizon
+  horizon_steps: 192            # 48h at 15min resolution
+  min_history_steps: 672        # 1 week minimum history for prediction
+
+# LightGBM hyperparameters
+lightgbm:
+  n_estimators: 500
+  learning_rate: 0.05
+  num_leaves: 63
+  max_depth: 8
+  min_data_in_leaf: 50
+  subsample: 0.8
+  colsample_bytree: 0.8
+  random_state: 42
+  verbose: -1
+  early_stopping_rounds: 50
+  validation_fraction: 0.1
+
+# Feature configuration
+features:
+  lags: [1, 2, 3, 96, 672]          # t-1, t-2, t-3, 1-day, 1-week
+  rolling_windows: [96]              # 24h rolling stats
+  calendar: true                     # hour, dayofweek, month, is_weekend, quarter_hour
+  cyclical: true                     # sin/cos encoding of calendar features
+
+# Data split
+data:
+  train_ratio: 0.8                   # First 80% for training
+  scenario_file: "mpc/scenarios/真实负荷_VIC_对齐时间线.xlsx"
+  scenario_load_col_keywords: ["负荷", "load", "有功", "demand"]
+
+# Covariate data sources (optional — omit entire section to skip covariates)
+covariates:
+  holiday_calendar_file: null            # e.g. scenarios/china_public_holiday_calendar.xlsx
+  holiday_calendar_sheet: calendar
+  historical_weather_file: null          # e.g. scenarios/hehong_weather_history.xlsx
+  historical_weather_sheet: weather
+  weather_columns:                       # mapping: covariate_name -> [possible column names]
+    temperature_c: [temperature, temp, 温度]
+    humidity_pct: [humidity, 湿度]
+
+# Output
+output:
+  model_dir: "outputs/models"
+  model_name: "load_forecaster.joblib"
+  eval_excel: "outputs/load_forecast_evaluation.xlsx"

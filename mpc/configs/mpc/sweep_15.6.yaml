@@ -1,0 +1,66 @@
+battery:
+  capacity_kwh: 699
+  charge_eff: 0.95
+  charge_max_kw: 375
+  discharge_eff: 0.95
+  discharge_max_kw: 375
+  soc_init: 0.5
+  soc_max: 0.9
+  soc_min: 0.1
+cost:
+  billing_days: 30
+  c_deg: 0.05
+  capacity_rate: 0
+  demand_rate: 15.6
+device:
+  load_base_kw: 1000
+  pv_capacity_kw: 350
+  pv_efficiency: 0.95
+  wind_capacity_kw: 0
+  wind_efficiency: 0
+forecast_covariates:
+  holiday_calendar_file: scenarios/china_public_holiday_calendar_2026.xlsx
+  holiday_calendar_sheet: calendar
+forecast_history:
+  data_file: scenarios/hehonghuajin_new.xlsx
+  sheet: train_apr
+  unit: ratio
+grid:
+  anti_backflow: true
+  export_max_kw: 0
+  import_max_kw: 5000
+  transformer_capacity_kw: 5000
+mpc:
+  days: 5
+  forecast_mode: lightgbm
+  horizon_steps: 192
+  model_path: outputs/models/hehonghuajin_new_base.joblib
+  peak_slack_penalty: 5000
+  reserve_energy_enabled: true
+  reserve_error_lookback_days: 3
+  reserve_error_max_kw: 150
+  reserve_error_min_kw: 30
+  reserve_error_min_samples: 96
+  reserve_error_quantile: 0.9
+  reserve_error_warmup_kw: 100
+  reserve_lead_hours: 2
+  reserve_margin_high_kw: 60
+  reserve_margin_risk_kw: 120
+  reserve_slack_penalty: 20
+  reserve_soc_enabled: false
+  reserve_soc_high: 0.35
+  reserve_soc_normal: 0.1
+  reserve_soc_risk: 0.25
+  start_step: 0
+  target_peak_kw: null
+  target_peak_mode: oracle_full_period
+  vpp_realtime_discharge_compensation: true
+output: outputs/hehonghuajin_mpc_peak40_5days.xlsx
+scenario:
+  data_file: scenarios/hehonghuajin_new.xlsx
+  sheets:
+    load: load_may
+    price: price
+    pv_wind: pv_may
+vpp:
+  enabled: false
