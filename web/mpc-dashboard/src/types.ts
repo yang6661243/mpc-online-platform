@@ -102,3 +102,23 @@ export interface RunMpcResponse {
   comparison: StrategyComparison | null;
   message: string;
 }
+
+export interface MpcHealthStatus {
+  plant_id: string;
+  state: string;
+  label: string;
+  telemetry_windows: number;
+  ok_windows: number;
+  interpolated_windows: number;
+  continuous_from_month_start: boolean;
+  continuous_ok_windows: number;
+  last_run_id: string | null;
+  last_run_status: string | null;
+  last_run_finished_at: string | null;
+  last_run_error: string | null;
+  minutes_since_last_run: number | null;
+  has_gap: boolean;
+  max_gap_minutes: number;
+  new_windows_since_last: number;
+  checked_at: string;
+}

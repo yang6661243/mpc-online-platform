@@ -140,6 +140,7 @@ select:focus-visible {
 }
 
 .plant-picker {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -153,6 +154,53 @@ select:focus-visible {
   padding: 0 10px;
   color: var(--ink);
   font-weight: 600;
+}
+
+.plant-tooltip {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 100;
+  margin-top: 8px;
+  min-width: 240px;
+  padding: 14px 18px;
+  background:
+    linear-gradient(180deg, rgba(10, 37, 58, 0.98), rgba(4, 17, 29, 0.98));
+  border: 1px solid rgba(92, 200, 236, 0.34);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  pointer-events: auto;
+}
+
+.plant-tooltip strong {
+  display: block;
+  margin-bottom: 10px;
+  color: var(--cyan);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.plant-tooltip table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  color: var(--muted-strong);
+}
+
+.plant-tooltip td {
+  padding: 4px 0;
+  border-bottom: 1px solid rgba(92, 200, 236, 0.1);
+}
+
+.plant-tooltip td:first-child {
+  color: var(--muted);
+  width: 70px;
+}
+
+.plant-tooltip td:last-child {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: #ffffff;
 }
 
 .content {
@@ -492,6 +540,65 @@ select:focus-visible {
 .rail-highlight strong {
   font-size: clamp(22px, 1.6vw, 30px);
   text-align: center;
+}
+
+/* MPC health status hints */
+.mpc-status-hint {
+  display: block;
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.mpc-status-hint.gap-warn {
+  color: #f4b766;
+}
+
+/* MPC status state colors */
+.rail-highlight.status-ready {
+  border-color: rgba(66, 214, 166, 0.62);
+  background:
+    radial-gradient(circle at 0% 0%, rgba(66, 214, 166, 0.2), transparent 58%),
+    rgba(66, 214, 166, 0.12);
+}
+
+.rail-highlight.status-running,
+.rail-highlight.status-catching_up {
+  border-color: rgba(81, 215, 255, 0.62);
+  background:
+    radial-gradient(circle at 0% 0%, rgba(81, 215, 255, 0.2), transparent 58%),
+    rgba(81, 215, 255, 0.12);
+}
+
+.rail-highlight.status-succeeded {
+  border-color: rgba(66, 214, 166, 0.45);
+  background:
+    radial-gradient(circle at 0% 0%, rgba(66, 214, 166, 0.12), transparent 58%),
+    rgba(66, 214, 166, 0.06);
+}
+
+.rail-highlight.status-failed {
+  border-color: rgba(244, 67, 54, 0.55);
+  background:
+    radial-gradient(circle at 0% 0%, rgba(244, 67, 54, 0.15), transparent 58%),
+    rgba(244, 67, 54, 0.08);
+}
+
+.rail-highlight.status-data_gap,
+.rail-highlight.status-partial_month {
+  border-color: rgba(244, 183, 102, 0.55);
+  background:
+    radial-gradient(circle at 0% 0%, rgba(244, 183, 102, 0.15), transparent 58%),
+    rgba(244, 183, 102, 0.08);
+}
+
+.rail-highlight.status-accumulating {
+  border-color: rgba(169, 201, 216, 0.3);
+}
+
+.rail-highlight.status-idle {
+  border-color: rgba(169, 201, 216, 0.18);
 }
 
 .progress-track {

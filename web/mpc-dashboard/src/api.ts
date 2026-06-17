@@ -1,8 +1,9 @@
-import type { DashboardResponse, DisplaySeriesResponse, RunMpcRequest, RunMpcResponse } from "./types";
+import type { DashboardResponse, DisplaySeriesResponse, MpcHealthStatus, RunMpcRequest, RunMpcResponse } from "./types";
 
 export interface DashboardRequestOptions {
   windowHours: number;
   runId?: string;
+  profile?: string;
   startTime?: string;
   endTime?: string;
 }
@@ -36,6 +37,9 @@ export function buildDashboardUrl(plantId: string, options: DashboardRequestOpti
   }
   if (options.endTime) {
     params.set("end_time", options.endTime);
+  }
+  if (options.profile) {
+    params.set("profile", options.profile);
   }
   return `/api/v1/plants/${encodeURIComponent(plantId)}/dashboard?${params}`;
 }
@@ -127,4 +131,58 @@ export async function runMpc(request: RunMpcRequest, signal?: AbortSignal): Prom
     throw new Error(`mpc run failed: HTTP ${response.status}${detail}`);
   }
   return response.json() as Promise<RunMpcResponse>;
+}
+
+export function buildMpcStatusUrl(plantId: string, profile?: string): string {
+  const params = profile ? `?profile=${encodeURIComponent(profile)}` : "";
+  return `/api/v1/plants/${encodeURIComponent(plantId)}/mpc-status${params}`;
+}
+
+export async function fetchMpcStatus(
+  plantId: string,
+  profile?: string,
+  signal?: AbortSignal,
+): Promise<MpcHealthStatus> {
+  const response = await fetch(buildMpcStatusUrl(plantId, profile), { signal });
+  if (!response.ok) {
+    let detail = "";
+    try {
+      const body = await response.json();
+      detail = typeof body.detail === "string" ? `: ${body.detail}` : "";
+    } catch {
+      detail = "";
+    }
+    throw new Error(`mpc status request failed: HTTP ${response.status}${detail}`);
+  }
+  return response.json() as Promise<MpcHealthStatus>;
+}
+
+export function buildMonthlyDemandRefUrl(plantId: string): string {
+  return `/api/v1/plants/${encodeURIComponent(plantId)}/monthly-demand-ref`;
+}
+
+export async function fetchMonthlyDemandRef(
+  plantId: string,
+  signal?: AbortSignal,
+): Promise<{ plant_id: string; year_month: string; reference_peak_kw: number | null }> {
+  const response = await fetch(buildMonthlyDemandRefUrl(plantId), { signal });
+  if (!response.ok) throw new Error(`demand ref request failed: HTTP ${response.status}`);
+  return response.json();
+}
+
+export async function setMonthlyDemandRef(
+  plantId: string,
+  referencePeakKw: number,
+  signal?: AbortSignal,
+): Promise<{ success: boolean; reference_peak_kw: number }> {
+  const response = await fetch(
+    `${buildMonthlyDemandRefUrl(plantId)}?reference_peak_kw=${encodeURIComponent(referencePeakKw)}`,
+    { method: "POST", signal },
+  );
+  if (!response.ok) {
+    let detail = "";
+    try { const body = await response.json(); detail = typeof body.detail === "string" ? `: ${body.detail}` : ""; } catch { detail = ""; }
+    throw new Error(`set demand ref failed: HTTP ${response.status}${detail}`);
+  }
+  return response.json();
 }

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+import asyncio
+from collections.abc import AsyncIterator, Callable
+from contextlib import asynccontextmanager
 from pathlib import Path
 import os
 
@@ -22,13 +24,21 @@ from microgrid_online.time_utils import parse_timestamp
 from microgrid_online.database import create_session_factory
 from microgrid_online.ingestion import ingest_battery_records, ingest_grid_records
 from microgrid_online.input_mapping import normalize_input_records
-from microgrid_online.models import MpcRun, StrategyComparison
+from microgrid_online.models import IntraMinutePoint, MonthlyDemandRef, MpcRun, StrategyComparison
 from microgrid_online.mpc_cli_runner import (
     CommandRunner,
     MicrogridMpcCliRunner,
     MicrogridMpcCliRunnerConfig,
 )
+from microgrid_online.mpc_health import (
+    MpcHealthChecker,
+    MpcHealthStatus,
+    MpcScheduler,
+    run_health_checker_loop,
+    run_periodic_scheduler,
+)
 from microgrid_online.mpc_run import MpcRunner, MpcRunnerNotConfigured, run_online_mpc
+from microgrid_online.fuzzy_pid_runner import run_fuzzy_pid_decomposition
 from microgrid_online.plant_config import load_plant_config, plant_config_to_mpc_cli_config
 from microgrid_online.signature import verify_signature
 
@@ -40,10 +50,29 @@ DEFAULT_PLANT_CONFIG_PATH = PROJECT_ROOT / "configs" / "plants" / "hehong_huajin
 DEFAULT_CORS_ORIGINS = [
     "https://ecloud.hoenergypower.cn",
     "chrome-extension://becnmfbeidffckhenedfiahikaagpgek",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
 ]
 
 PLANT_ID_ALIASES = {
     "ecloud_factory": "hehong_huajin",
+}
+
+ALL_PLANTS = ["hehong_huajin", "ecloud_station_3341"]
+ALL_PROFILES = ["demand100", "demand70", "demand40"]
+
+# Per‑(plant, profile) MPC parameters (merged with plant defaults at runtime)
+PROFILE_CONFIGS: dict[str, dict[str, dict]] = {
+    "hehong_huajin": {
+        "demand100": {"demand_rate": 39.0, "target_peak_ratio": 1.0, "demand_label": "100%需量+峰谷套利"},
+        "demand70": {"demand_rate": 27.3, "target_peak_ratio": 0.70, "demand_label": "70%需量+峰谷套利"},
+        "demand40": {"demand_rate": 15.6, "target_peak_ratio": 0.40, "demand_label": "40%需量+峰谷套利"},
+    },
+    "ecloud_station_3341": {
+        "demand100": {"demand_rate": 39.0, "target_peak_ratio": 1.0, "demand_label": "100%需量+峰谷套利"},
+        "demand70": {"demand_rate": 27.3, "target_peak_ratio": 0.70, "demand_label": "70%需量+峰谷套利"},
+        "demand40": {"demand_rate": 15.6, "target_peak_ratio": 0.40, "demand_label": "40%需量+峰谷套利"},
+    },
 }
 
 
@@ -128,15 +157,115 @@ def create_app(
     run_output_dir: str | Path = "outputs/online_mpc_runs",
     input_signature_secret: str | None = None,
     dashboard_dist_dir: str | Path | None = None,
+    health_checker_plants: list[str] | None = None,
+    health_checker_profiles: list[str] | None = None,
 ) -> FastAPI:
-    app = FastAPI(title="Online MPC Service")
+    sf = session_factory or create_session_factory()
+    plants = health_checker_plants or ALL_PLANTS
+    profiles = health_checker_profiles or ALL_PROFILES
+
+    # ── Build per‑profile health checkers ───────────────────────────────
+    health_checkers: dict[str, MpcHealthChecker] = {}
+    for plant_id in plants:
+        for profile in profiles:
+            key = f"{plant_id}/{profile}"
+            health_checkers[key] = MpcHealthChecker(
+                sf, plant_id=plant_id, profile=profile,
+            )
+
+    # ── Build per‑plant schedulers ──────────────────────────────────────
+    def _mk_mpc_runner(plant_id: str):
+        """Return a RunMpcFunc closure for a specific plant."""
+        def _run(pid: str, prof: str, rid: str, ft: datetime, tt: datetime) -> str | None:
+            mpc_r = app.state.mpc_runner if hasattr(app.state, "mpc_runner") else None
+            if mpc_r is None:
+                raise RuntimeError("MPC runner not configured")
+            from microgrid_online.mpc_adapter import export_mpc_scenario_from_telemetry
+            from microgrid_online.mpc_run import OnlineMpcRunInput
+            sess = sf()
+            try:
+                scenario = export_mpc_scenario_from_telemetry(
+                    sess, plant_id=pid, start_time=ft, end_time=tt,
+                    output_path=Path(run_output_dir) / rid / "scenario.xlsx",
+                )
+                cfg = PROFILE_CONFIGS.get(pid, {}).get(prof, {})
+                result = mpc_r(
+                    OnlineMpcRunInput(
+                        run_id=rid, plant_id=pid, profile=prof,
+                        start_time=ft, end_time=tt,
+                        scenario=scenario, telemetry_rows=[],
+                        actual_metrics=None,  # type: ignore[arg-type]
+                        buy_price=0.8, sell_price=0.3,
+                        c_deg=0.05,
+                        demand_rate=cfg.get("demand_rate", 39.0),
+                        billing_days=30,
+                        target_peak_kw=None,
+                    )
+                )
+                return rid
+            finally:
+                sess.close()
+        return _run
+
+    def _mk_fuzzy_runner(plant_id: str):
+        """Return a RunFuzzyPidFunc closure."""
+        def _run(pid: str, prof: str, rid: str, ft: datetime, tt: datetime) -> list:
+            sess = sf()
+            try:
+                plant_config_path_ = Path(
+                    f"configs/plants/{'hehong_huajin' if pid == 'hehong_huajin' else 'aodelai'}.yaml"
+                )
+                if not plant_config_path_.is_absolute():
+                    plant_config_path_ = PROJECT_ROOT / plant_config_path_
+                plant = load_plant_config(plant_config_path_) if plant_config_path_.exists() else None
+                pcs_limit = plant.battery.power_kw if plant else 375.0
+                capacity = plant.battery.capacity_kwh if plant else 783.0
+                peak = plant.grid.transformer_capacity_kw if plant else 5000.0
+                ab = plant.grid.anti_backflow if plant else True
+                return run_fuzzy_pid_decomposition(
+                    sess, plant_id=pid, profile=prof, run_id=rid,
+                    from_time=ft, to_time=tt,
+                    pcs_power_limit_kw=pcs_limit,
+                    energy_capacity_kwh=capacity,
+                    target_peak_kw=peak,
+                    anti_backflow=ab,
+                )
+            finally:
+                sess.close()
+        return _run
+
+    schedulers: dict[str, MpcScheduler] = {}
+    for plant_id in plants:
+        schedulers[plant_id] = MpcScheduler(
+            plant_id=plant_id,
+            profiles=list(profiles),
+            run_mpc=_mk_mpc_runner(plant_id),
+            run_fuzzy=_mk_fuzzy_runner(plant_id),
+        )
+
+    @asynccontextmanager
+    async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
+        tasks: list[asyncio.Task] = []
+        for checker in health_checkers.values():
+            tasks.append(asyncio.create_task(run_health_checker_loop(checker)))
+        for scheduler in schedulers.values():
+            tasks.append(asyncio.create_task(run_periodic_scheduler(scheduler, sf)))
+        try:
+            yield
+        finally:
+            for task in tasks:
+                task.cancel()
+            if tasks:
+                await asyncio.gather(*tasks, return_exceptions=True)
+
+    app = FastAPI(title="Online MPC Service", lifespan=_lifespan)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=_cors_origins_from_env(),
         allow_methods=["GET", "POST", "OPTIONS"],
         allow_headers=["*"],
     )
-    app.state.session_factory = session_factory or create_session_factory()
+    app.state.session_factory = sf
     app.state.input_signature_secret = input_signature_secret or os.getenv("MPC_INPUT_SIGNATURE_SECRET")
     if mpc_runner is None and enable_default_mpc_runner:
         app.state.mpc_runner = MicrogridMpcCliRunner(
@@ -149,6 +278,8 @@ def create_app(
         )
     else:
         app.state.mpc_runner = mpc_runner
+    app.state.health_checkers = health_checkers
+    app.state.schedulers = schedulers
     app.state.run_output_dir = Path(run_output_dir)
     app.state.dashboard_dist_dir = Path(dashboard_dist_dir or DEFAULT_DASHBOARD_DIST_DIR)
     dashboard_assets_dir = app.state.dashboard_dist_dir / "assets"
@@ -338,11 +469,31 @@ def create_app(
             "comparison": comparison_payload(comparison),
         }
 
+    @app.get("/api/v1/plants/{plant_id}/info")
+    def plant_info(plant_id: str):
+        plant_id = normalize_plant_id(plant_id)
+        config_name = "hehong_huajin" if plant_id == "hehong_huajin" else "aodelai"
+        config_path = PROJECT_ROOT / "configs" / "plants" / f"{config_name}.yaml"
+        if not config_path.exists():
+            raise HTTPException(status_code=404, detail=f"plant config not found: {plant_id}")
+        plant = load_plant_config(config_path)
+        return {
+            "plant_id": plant.plant_id,
+            "name": plant.name,
+            "latitude": plant.location.latitude,
+            "longitude": plant.location.longitude,
+            "pv_capacity_kw": plant.pv.capacity_kw,
+            "battery_power_kw": plant.battery.power_kw,
+            "battery_capacity_kwh": plant.battery.capacity_kwh,
+            "transformer_capacity_kw": plant.grid.transformer_capacity_kw,
+        }
+
     @app.get("/api/v1/plants/{plant_id}/dashboard")
     def dashboard(
         plant_id: str,
         window_hours: int = 24,
         run_id: str | None = None,
+        profile: str | None = None,
         start_time: str | None = None,
         end_time: str | None = None,
         session: Session = Depends(get_session),
@@ -353,6 +504,7 @@ def create_app(
             plant_id=plant_id,
             window_hours=window_hours,
             run_id=run_id,
+            profile=profile,
             start_time=start_time,
             end_time=end_time,
         )
@@ -418,6 +570,97 @@ def create_app(
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.get("/api/v1/plants/{plant_id}/mpc-status")
+    def mpc_status(
+        plant_id: str,
+        profile: str = Query(default="demand100"),
+        session: Session = Depends(get_session),
+    ):
+        plant_id = normalize_plant_id(plant_id)
+        key = f"{plant_id}/{profile}"
+        checker = app.state.health_checkers.get(key)
+        if checker is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"health checker not configured for: {key}",
+            )
+        status = checker.get_status(session)
+        return {
+            "plant_id": status.plant_id,
+            "profile": status.profile,
+            "state": status.state,
+            "label": status.label,
+            "telemetry_windows": status.telemetry_windows,
+            "ok_windows": status.ok_windows,
+            "interpolated_windows": status.interpolated_windows,
+            "continuous_from_month_start": status.continuous_from_month_start,
+            "continuous_ok_windows": status.continuous_ok_windows,
+            "last_run_id": status.last_run_id,
+            "last_run_status": status.last_run_status,
+            "last_run_finished_at": status.last_run_finished_at,
+            "last_run_error": status.last_run_error,
+            "minutes_since_last_run": status.minutes_since_last_run,
+            "has_gap": status.has_gap,
+            "max_gap_minutes": status.max_gap_minutes,
+            "new_windows_since_last": status.new_windows_since_last,
+            "monthly_demand_ref_set": status.monthly_demand_ref_set,
+            "checked_at": status.checked_at,
+        }
+
+    @app.get("/api/v1/plants/{plant_id}/monthly-demand-ref")
+    def get_monthly_demand_ref(
+        plant_id: str,
+        session: Session = Depends(get_session),
+    ):
+        plant_id = normalize_plant_id(plant_id)
+        now = datetime.now()
+        year_month = now.strftime("%Y-%m")
+        ref = session.scalar(
+            select(MonthlyDemandRef).where(
+                MonthlyDemandRef.plant_id == plant_id,
+                MonthlyDemandRef.year_month == year_month,
+            )
+        )
+        if ref is None:
+            return {"plant_id": plant_id, "year_month": year_month, "reference_peak_kw": None}
+        return {
+            "plant_id": ref.plant_id,
+            "year_month": ref.year_month,
+            "reference_peak_kw": ref.reference_peak_kw,
+        }
+
+    @app.post("/api/v1/plants/{plant_id}/monthly-demand-ref")
+    def set_monthly_demand_ref(
+        plant_id: str,
+        reference_peak_kw: float = Query(gt=0),
+        session: Session = Depends(get_session),
+    ):
+        plant_id = normalize_plant_id(plant_id)
+        now = datetime.now()
+        year_month = now.strftime("%Y-%m")
+        ref = session.scalar(
+            select(MonthlyDemandRef).where(
+                MonthlyDemandRef.plant_id == plant_id,
+                MonthlyDemandRef.year_month == year_month,
+            )
+        )
+        if ref is None:
+            ref = MonthlyDemandRef(
+                plant_id=plant_id,
+                year_month=year_month,
+                reference_peak_kw=reference_peak_kw,
+            )
+            session.add(ref)
+        else:
+            ref.reference_peak_kw = reference_peak_kw
+        session.commit()
+        return {
+            "success": True,
+            "plant_id": plant_id,
+            "year_month": year_month,
+            "reference_peak_kw": reference_peak_kw,
+        }
 
     return app
 

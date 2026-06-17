@@ -88,10 +88,48 @@ class MpcTarget(Base):
     plant_id: Mapped[str] = mapped_column(String(64), index=True)
     valid_from: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     valid_until: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    profile: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
     target_peak_kw: Mapped[float] = mapped_column(Float)
     target_soc: Mapped[float] = mapped_column(Float)
     mode: Mapped[str] = mapped_column(String(32), default="deployable")
     model_version: Mapped[str | None] = mapped_column(String(128), nullable=True)
+
+
+class MonthlyDemandRef(Base):
+    """User‑supplied monthly reference maximum demand (entered at month start)."""
+    __tablename__ = "monthly_demand_refs"
+    __table_args__ = (
+        UniqueConstraint("plant_id", "year_month", name="uq_monthly_demand_ref_plant_month"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    plant_id: Mapped[str] = mapped_column(String(64), index=True)
+    year_month: Mapped[str] = mapped_column(String(7), index=True)       # "2026-06"
+    reference_peak_kw: Mapped[float] = mapped_column(Float)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class IntraMinutePoint(Base):
+    """Per‑minute PCS command produced by the Fuzzy PID decomposition."""
+    __tablename__ = "intra_minute_points"
+    __table_args__ = (
+        UniqueConstraint("run_id", "plant_id", "profile", "time", name="uq_imp_run_plant_profile_time"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    run_id: Mapped[str] = mapped_column(String(128), index=True)
+    plant_id: Mapped[str] = mapped_column(String(64), index=True)
+    profile: Mapped[str] = mapped_column(String(32), index=True)
+    time: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    pcs_command_kw: Mapped[float] = mapped_column(Float)
+    pcs_actual_kw: Mapped[float] = mapped_column(Float)
+    soc_guide: Mapped[float] = mapped_column(Float)
+    soc_actual: Mapped[float] = mapped_column(Float)
+    grid_power_kw: Mapped[float] = mapped_column(Float)
+    grid_target_kw: Mapped[float] = mapped_column(Float)
+    severity: Mapped[str] = mapped_column(String(16), default="safe")
+    quality_flag: Mapped[str] = mapped_column(String(32), default="ok")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
 class StrategyComparison(Base):

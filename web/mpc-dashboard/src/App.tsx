@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { fetchDashboard, fetchDisplaySeries, importMpcRun, toApiTime } from "./api";
+import { fetchDashboard, fetchDisplaySeries, fetchMpcStatus, importMpcRun, runMpc, setMonthlyDemandRef, toApiTime } from "./api";
 import { displaySeriesToDashboardSeries } from "./displaySeries";
-import type { DashboardResponse, DashboardSeriesPoint, DisplaySeriesResponse } from "./types";
+import type { DashboardResponse, DashboardSeriesPoint, DisplaySeriesResponse, MpcHealthStatus, RunMpcResponse } from "./types";
 import {
   buildDemandComparisonChartOption,
   buildRevenueComparisonChartOption,
@@ -190,6 +190,54 @@ export default function App() {
   const [importing, setImporting] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [mpcRunLoading, setMpcRunLoading] = useState(false);
+  const [mpcRunError, setMpcRunError] = useState<string | null>(null);
+  const [mpcRunResult, setMpcRunResult] = useState<RunMpcResponse | null>(null);
+  const [mpcHealth, setMpcHealth] = useState<MpcHealthStatus | null>(null);
+  const [plantInfo, setPlantInfo] = useState<{
+    name: string; latitude: number; longitude: number;
+    pv_capacity_kw: number; battery_power_kw: number;
+    battery_capacity_kwh: number; transformer_capacity_kw: number;
+  } | null>(null);
+  const [plantInfoVisible, setPlantInfoVisible] = useState(false);
+  const plantInfoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handlePlantHover = useCallback(async () => {
+    if (plantInfoTimerRef.current) clearTimeout(plantInfoTimerRef.current);
+    setPlantInfoVisible(true);
+    try {
+      const res = await fetch(`/api/v1/plants/${encodeURIComponent(plantId)}/info`);
+      if (res.ok) setPlantInfo(await res.json());
+      else setPlantInfo(null);
+    } catch { setPlantInfo(null); }
+  }, [plantId]);
+
+  const handlePlantLeave = useCallback(() => {
+    plantInfoTimerRef.current = setTimeout(() => setPlantInfoVisible(false), 200);
+  }, []);
+
+  // Poll MPC health status every 5 seconds
+  useEffect(() => {
+    let active = true;
+    const controller = new AbortController();
+
+    async function poll() {
+      try {
+        const status = await fetchMpcStatus(plantId, optimizationTarget, controller.signal);
+        if (active) setMpcHealth(status);
+      } catch {
+        // silently ignore polling errors; the card shows the last known state
+      }
+    }
+
+    poll();
+    const timer = setInterval(poll, 5000);
+    return () => {
+      active = false;
+      controller.abort();
+      clearInterval(timer);
+    };
+  }, [plantId, optimizationTarget]);
 
   const handleImportExcel = useCallback(async () => {
     const input = fileInputRef.current;
@@ -209,6 +257,47 @@ export default function App() {
       if (input) input.value = "";
     }
   }, [plantId, optimizationTarget]);
+
+  const handleRunMpc = useCallback(async () => {
+    setMpcRunLoading(true);
+    setMpcRunError(null);
+    setMpcRunResult(null);
+    try {
+      const now = new Date();
+      const startTime = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+      const requestId = `web_${Date.now()}`;
+      const result = await runMpc({
+        request_id: requestId,
+        plant_id: plantId,
+        start_time: startTime.toISOString(),
+        end_time: now.toISOString(),
+        profile: optimizationTarget,
+      });
+      setMpcRunResult(result);
+      setRefreshCount((value) => value + 1);
+    } catch (err) {
+      setMpcRunError(err instanceof Error ? err.message : "MPC 运行失败");
+    } finally {
+      setMpcRunLoading(false);
+    }
+  }, [plantId, optimizationTarget]);
+
+  // Monthly demand ref popup — when state is awaiting_demand_ref, prompt user
+  useEffect(() => {
+    if (mpcHealth?.state !== "awaiting_demand_ref") return;
+    const nextValue = window.prompt(
+      `【${mpcHealth.plant_id}】本月参考最大需量尚未设置。\n\n请输入本月参考最大需量值（kW）：`,
+      "",
+    );
+    if (nextValue !== null) {
+      const parsed = Number(nextValue);
+      if (Number.isFinite(parsed) && parsed > 0) {
+        setMonthlyDemandRef(plantId, parsed).catch((err) => {
+          setMpcRunError(err instanceof Error ? err.message : "设置参考需量失败");
+        });
+      }
+    }
+  }, [mpcHealth?.state, mpcHealth?.plant_id, plantId]);
 
   const rangeStart = useMemo(() => {
     const monthRange = monthToTimeRange(selectedMonth);
@@ -235,6 +324,7 @@ export default function App() {
       {
         windowHours,
         runId: runId.trim() || undefined,
+        profile: isRealtimeMode ? optimizationTarget : undefined,
         startTime: toApiTime(rangeStart),
         endTime: toApiTime(rangeEnd),
       },
@@ -347,7 +437,10 @@ export default function App() {
           <strong>{latestTime}</strong>
         </div>
         <h1>则鸣AI+ems实时演示系统</h1>
-        <label className="plant-picker">
+        <label className="plant-picker"
+          onMouseEnter={handlePlantHover}
+          onMouseLeave={handlePlantLeave}
+        >
           <span>工厂选择</span>
           <select value={plantId} onChange={(event) => setPlantId(event.target.value)}>
             {PLANT_OPTIONS.map((plant) => (
@@ -356,6 +449,32 @@ export default function App() {
               </option>
             ))}
           </select>
+          {plantInfoVisible && (
+            <div className="plant-tooltip"
+              onMouseEnter={() => {
+                if (plantInfoTimerRef.current) clearTimeout(plantInfoTimerRef.current);
+                setPlantInfoVisible(true);
+              }}
+              onMouseLeave={handlePlantLeave}
+            >
+              {plantInfo ? (
+                <>
+                  <strong>{plantInfo.name}</strong>
+                  <table>
+                    <tbody>
+                      <tr><td>经纬度</td><td>{plantInfo.latitude}, {plantInfo.longitude}</td></tr>
+                      <tr><td>光伏装机</td><td>{plantInfo.pv_capacity_kw} kW</td></tr>
+                      <tr><td>储能功率</td><td>{plantInfo.battery_power_kw} kW</td></tr>
+                      <tr><td>储能容量</td><td>{plantInfo.battery_capacity_kwh} kWh</td></tr>
+                      <tr><td>变压器</td><td>{plantInfo.transformer_capacity_kw} kW</td></tr>
+                    </tbody>
+                  </table>
+                </>
+              ) : (
+                <span style={{ color: "var(--muted)", fontSize: 12 }}>加载中...</span>
+              )}
+            </div>
+          )}
         </label>
       </header>
 
@@ -460,9 +579,28 @@ export default function App() {
           </section>
 
           <aside className="control-rail" aria-label="状态及控制栏">
-            <div className="rail-card rail-highlight">
+            <div className={`rail-card rail-highlight ${mpcHealth ? `status-${mpcHealth.state}` : ""}`}>
               <span>{CONTROL_RAIL_CARD_TITLES[0]}</span>
-              <strong className="mpc-status-text">{mpcStatusText}</strong>
+              <strong className="mpc-status-text">
+                {mpcHealth ? mpcHealth.label : mpcStatusText}
+              </strong>
+              {mpcHealth?.continuous_from_month_start === false && mpcHealth.telemetry_windows > 0 && (
+                <small className="mpc-status-hint">本月数据非连续</small>
+              )}
+              {mpcHealth?.has_gap && (
+                <small className="mpc-status-hint gap-warn">缺口 {mpcHealth.max_gap_minutes} 分钟</small>
+              )}
+              {mpcHealth?.minutes_since_last_run != null && mpcHealth.last_run_status === "succeeded" && (
+                <small className="mpc-status-hint">{Math.round(mpcHealth.minutes_since_last_run)} 分钟前运行</small>
+              )}
+              <button
+                type="button"
+                className="mini-action"
+                onClick={handleRunMpc}
+                disabled={mpcRunLoading || mpcHealth?.state === "running"}
+              >
+                {mpcRunLoading || mpcHealth?.state === "running" ? "运行中..." : "启动"}
+              </button>
             </div>
             <div className="rail-card editable-card">
               <span>{CONTROL_RAIL_CARD_TITLES[1]}</span>
@@ -509,6 +647,48 @@ export default function App() {
           </aside>
         </section>
       </section>
+
+      {(mpcRunError || mpcRunResult) && (
+        <div className="chart-modal" role="dialog" aria-modal="true" aria-label={mpcRunError ? "MPC 运行失败" : "MPC 运行完成"}>
+          <div className="chart-modal-panel" style={{ maxWidth: 440 }}>
+            <div className="chart-modal-head">
+              <h2>{mpcRunError ? "MPC 运行失败" : "MPC 运行完成"}</h2>
+              <button
+                className="icon-button"
+                type="button"
+                onClick={() => { setMpcRunError(null); setMpcRunResult(null); }}
+                aria-label="关闭"
+              >
+                <span className="flat-icon icon-close" aria-hidden="true" />
+              </button>
+            </div>
+            <div style={{ padding: "16px 0", lineHeight: 1.7 }}>
+              {mpcRunError ? (
+                <p style={{ color: "var(--warn)", margin: 0 }}>{mpcRunError}</p>
+              ) : mpcRunResult ? (
+                <div style={{ color: "var(--muted-strong)" }}>
+                  <p style={{ margin: "0 0 8px" }}>
+                    Run ID: <code style={{ color: "var(--green)" }}>{mpcRunResult.run_id}</code>
+                  </p>
+                  <p style={{ margin: "0 0 8px" }}>
+                    状态: <span style={{ color: "var(--green)" }}>{mpcRunResult.status}</span>
+                  </p>
+                  {mpcRunResult.comparison && (
+                    <>
+                      <p style={{ margin: "0 0 4px" }}>
+                        MPC 最大需量: {mpcRunResult.comparison.mpc_peak_kw != null ? `${(mpcRunResult.comparison.mpc_peak_kw).toFixed(1)} kW` : "--"}
+                      </p>
+                      <p style={{ margin: 0 }}>
+                        预计节省: {mpcRunResult.comparison.cost_saving_yuan != null ? `${(mpcRunResult.comparison.cost_saving_yuan).toFixed(2)} 元` : "--"}
+                      </p>
+                    </>
+                  )}
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

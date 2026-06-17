@@ -4,8 +4,8 @@ plant_id: hehong_huajin
 name: 和宏华进
 
 location:
-  latitude: 30.8300938
-  longitude: 121.2213572
+  latitude: 30.83
+  longitude: 121.22
   timezone: Asia/Shanghai
 
 battery:

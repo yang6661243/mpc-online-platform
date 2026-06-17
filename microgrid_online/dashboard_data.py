@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from microgrid_online.comparison import compare_strategy_metrics, compute_actual_strategy_metrics
-from microgrid_online.models import StrategyComparison, StrategyCurvePoint, Telemetry15Min
+from microgrid_online.models import MpcRun, StrategyComparison, StrategyCurvePoint, Telemetry15Min
 from microgrid_online.time_utils import parse_timestamp
 
 
@@ -71,13 +71,25 @@ def _telemetry_window(
     )
 
 
-def _latest_comparison(session: Session, plant_id: str) -> StrategyComparison | None:
-    return session.scalar(
+def _latest_comparison(session: Session, plant_id: str, profile: str | None = None) -> StrategyComparison | None:
+    stmt = (
         select(StrategyComparison)
         .where(StrategyComparison.plant_id == plant_id)
         .order_by(StrategyComparison.created_at.desc())
         .limit(1)
     )
+    if profile is not None:
+        stmt = (
+            select(StrategyComparison)
+            .join(MpcRun, StrategyComparison.run_id == MpcRun.run_id)
+            .where(
+                StrategyComparison.plant_id == plant_id,
+                MpcRun.profile == profile,
+            )
+            .order_by(StrategyComparison.created_at.desc())
+            .limit(1)
+        )
+    return session.scalar(stmt)
 
 
 def _curve_points_by_time(
@@ -329,6 +341,7 @@ def build_dashboard_payload(
     plant_id: str,
     window_hours: int = 24,
     run_id: str | None = None,
+    profile: str | None = None,
     start_time: str | None = None,
     end_time: str | None = None,
 ) -> dict:
@@ -345,7 +358,7 @@ def build_dashboard_payload(
         raise HTTPException(status_code=422, detail="window_hours must be between 1 and 168")
 
     latest = _latest_telemetry(session, plant_id)
-    comparison = _latest_comparison(session, plant_id)
+    comparison = _latest_comparison(session, plant_id, profile=profile)
     rows = _telemetry_window(
         session,
         plant_id=plant_id,

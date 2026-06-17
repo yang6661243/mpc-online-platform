@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import {
   CONTROL_RAIL_CARD_TITLES,
   DASHBOARD_VISUAL_SCOPE,
@@ -10,6 +12,8 @@ import {
   STRATEGY_GRID_TEMPLATE_COLUMNS,
   TOPBAR_TIME_LABEL,
 } from "./layout";
+
+const stylesCss = readFileSync(fileURLToPath(new URL("./styles.css", import.meta.url)), "utf8");
 
 describe("dashboard layout styles", () => {
   it("stacks strategy cards vertically with enough chart height for dense curves", () => {
@@ -44,5 +48,12 @@ describe("dashboard layout styles", () => {
       style: "dark-industrial-dashboard",
       primaryTask: "show-model-advantage",
     });
+  });
+
+  it("keeps the plant info popup in the DOM and reveals it on hover or focus", () => {
+    expect(stylesCss).toContain(".plant-picker:hover .plant-tooltip");
+    expect(stylesCss).toContain(".plant-picker:focus-within .plant-tooltip");
+    expect(stylesCss).toContain("visibility: hidden");
+    expect(stylesCss).toContain("opacity: 0");
   });
 });
