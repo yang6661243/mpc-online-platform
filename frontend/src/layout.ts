@@ -3,7 +3,7 @@ export const STRATEGY_CHART_HEIGHT_PX = 520;
 
 export const PLANT_OPTIONS = [
   { label: "和宏华进", value: "hehong_huajin" },
-  { label: "奥来德", value: "ecloud_station_3341" },
+  { label: "奥来德", value: "aolaide" },
 ];
 
 export const LEFT_CHART_TITLES = ["收益对比图", "收益折线图", "需量对比图"];

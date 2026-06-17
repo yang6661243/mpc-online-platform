@@ -32,10 +32,6 @@ from mpc.microgrid.battery_ops import (
 DT = 0.25
 
 
-
-    return bp
-
-
 def _resolve_path(path):
     if os.path.isabs(path):
         return path
@@ -532,7 +528,7 @@ def main():
             f"ramp_slack_penalty={battery_ramp_slack_penalty}"
         )
     soc = battery.get('soc_init', 0.5)
-    cost = 0.0; peak = 0.0; peak_sofar = 0.0
+    running_cost = 0.0; peak = 0.0; peak_sofar = 0.0
     traj = []; fc_errors = []
     under_error_history = []
     previous_battery_power_kw = float(mpc_cfg.get('initial_battery_power_kw', 0.0))
@@ -686,22 +682,22 @@ def main():
         soc += (chg_eff * chg - dis / dis_eff) * DT / bat_kwh
         soc = max(soc_min, min(soc_max, soc))
         previous_battery_power_kw = bp
-        cost += step_cost; peak_sofar = max(peak_sofar, gi); peak = max(peak, gi)
+        running_cost += step_cost; peak_sofar = max(peak_sofar, gi); peak = max(peak, gi)
         if t == 0 or (t + 1) % progress_interval_steps == 0 or (t + 1) == run_steps:
             elapsed_now = time.time() - t_start
             print(
                 f"  step {t + 1}/{run_steps} "
                 f"day={(t + 1) / 96:.2f}/{run_steps / 96:.0f}: "
-                f"SOC={soc:.3f} peak={peak_sofar:.1f}kW cost={cost:.0f} "
+                f"SOC={soc:.3f} peak={peak_sofar:.1f}kW cost={running_cost:.0f} "
                 f"elapsed={elapsed_now:.0f}s",
                 flush=True,
             )
 
     total_demand = demand_rate * peak * run_steps * DT / 24 / 30
-    ctrl = cost + total_demand
+    ctrl = running_cost + total_demand
     fc_mae = float(np.mean(fc_errors))
     elapsed_mpc = time.time() - t_start
-    print(f"  MPC: peak={peak:.1f}kW demand={total_demand:.0f} basic={cost:.0f} "
+    print(f"  MPC: peak={peak:.1f}kW demand={total_demand:.0f} basic={running_cost:.0f} "
           f"ctrl={ctrl:.0f} FC_MAE={fc_mae:.2f}kW [{elapsed_mpc:.0f}s]")
 
     # ── MILP benchmark ──

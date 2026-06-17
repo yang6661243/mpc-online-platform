@@ -18,6 +18,15 @@ STRATEGY_CURVE_OPTIONAL_COLUMNS = {
     "mpc_pv_kw": "FLOAT",
 }
 
+TELEMETRY_15MIN_OPTIONAL_COLUMNS = {
+    "sell_price": "FLOAT",
+    "mpc_grid_power_kw_avg": "FLOAT",
+    "mpc_battery_power_kw_avg": "FLOAT",
+    "mpc_soc": "FLOAT",
+    "mpc_load_kw": "FLOAT",
+    "mpc_pv_kw": "FLOAT",
+}
+
 
 def resolve_database_url(database_url: str | None = None) -> str:
     return database_url or os.getenv("MPC_DATABASE_URL", DEFAULT_DATABASE_URL)
@@ -57,16 +66,33 @@ def ensure_runtime_schema(engine) -> None:
     if not engine.dialect.name.startswith("sqlite"):
         return
     inspector = inspect(engine)
-    if "strategy_curve_points" not in inspector.get_table_names():
-        return
-    existing = {column["name"] for column in inspector.get_columns("strategy_curve_points")}
-    missing = {
-        column_name: column_type
-        for column_name, column_type in STRATEGY_CURVE_OPTIONAL_COLUMNS.items()
-        if column_name not in existing
-    }
-    if not missing:
-        return
-    with engine.begin() as connection:
-        for column_name, column_type in missing.items():
-            connection.execute(text(f"ALTER TABLE strategy_curve_points ADD COLUMN {column_name} {column_type}"))
+
+    # strategy_curve_points optional columns
+    if "strategy_curve_points" in inspector.get_table_names():
+        existing = {column["name"] for column in inspector.get_columns("strategy_curve_points")}
+        missing = {
+            column_name: column_type
+            for column_name, column_type in STRATEGY_CURVE_OPTIONAL_COLUMNS.items()
+            if column_name not in existing
+        }
+        if missing:
+            with engine.begin() as connection:
+                for column_name, column_type in missing.items():
+                    connection.execute(text(
+                        f"ALTER TABLE strategy_curve_points ADD COLUMN {column_name} {column_type}"
+                    ))
+
+    # telemetry_15min optional columns (MPC results + sell_price)
+    if "telemetry_15min" in inspector.get_table_names():
+        existing = {column["name"] for column in inspector.get_columns("telemetry_15min")}
+        missing = {
+            column_name: column_type
+            for column_name, column_type in TELEMETRY_15MIN_OPTIONAL_COLUMNS.items()
+            if column_name not in existing
+        }
+        if missing:
+            with engine.begin() as connection:
+                for column_name, column_type in missing.items():
+                    connection.execute(text(
+                        f"ALTER TABLE telemetry_15min ADD COLUMN {column_name} {column_type}"
+                    ))

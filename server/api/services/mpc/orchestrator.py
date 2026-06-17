@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime
@@ -8,6 +9,8 @@ import re
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+
+logger = logging.getLogger(__name__)
 
 from api.services.comparison import (
     StrategyMetrics,
@@ -35,6 +38,8 @@ class OnlineMpcRunInput:
     demand_rate: float
     billing_days: float
     target_peak_kw: float | None = None
+    forecast_model_path: str | None = None
+    forecast_history_file: str | None = None
 
 
 @dataclass(frozen=True)
@@ -85,17 +90,17 @@ def _load_ready_telemetry_rows(
     if not rows:
         raise ValueError("no telemetry rows found")
 
-    for row in rows:
-        if row.quality_flag != "ok":
-            raise ValueError(f"telemetry window is not ready: {row.quality_flag}")
-        if row.grid_power_kw_avg is None:
-            raise ValueError("telemetry window missing grid_power_kw_avg")
-        if row.battery_power_kw_avg is None:
-            raise ValueError("telemetry window missing battery_power_kw_avg")
-        if row.soc_end is None:
-            raise ValueError("telemetry window missing soc_end")
-
-    return rows
+    # Filter to only ready windows (skip incomplete/missing ones)
+    ready = [
+        row for row in rows
+        if row.quality_flag == "ok"
+        and row.grid_power_kw_avg is not None
+        and row.battery_power_kw_avg is not None
+        and row.soc_end is not None
+    ]
+    if not ready:
+        raise ValueError("no ready telemetry rows (all windows have quality issues or missing fields)")
+    return ready
 
 
 def _actual_metrics_from_rows(
@@ -175,6 +180,8 @@ def run_online_mpc(
     demand_rate: float = 30.0,
     billing_days: float = 30.0,
     target_peak_kw: float | None = None,
+    forecast_model_path: str | None = None,
+    forecast_history_file: str | None = None,
 ) -> OnlineMpcRunResult:
     if runner is None:
         raise MpcRunnerNotConfigured("MPC runner is not configured")
@@ -189,7 +196,7 @@ def run_online_mpc(
     if existing is not None:
         raise ValueError(f"run_id already exists: {run_id}")
 
-    scenario_path = Path(output_dir) / run_id / "scenario.xlsx"
+    scenario_path = Path(output_dir).resolve() / run_id / "scenario.xlsx"
     run = MpcRun(
         run_id=run_id,
         plant_id=plant_id,
@@ -204,12 +211,14 @@ def run_online_mpc(
     session.commit()
 
     try:
+        logger.info("MPC run %s: loading telemetry %s ~ %s", run_id, start, end)
         rows = _load_ready_telemetry_rows(
             session,
             plant_id=plant_id,
             start_time=start,
             end_time=end,
         )
+        logger.info("MPC run %s: %d ready telemetry rows loaded", run_id, len(rows))
         scenario = export_mpc_scenario_from_telemetry(
             session,
             plant_id=plant_id,
@@ -220,6 +229,8 @@ def run_online_mpc(
             buy_price=buy_price,
             sell_price=sell_price,
         )
+        logger.info("MPC run %s: scenario exported to %s (steps=%d, base_kw=%.1f)",
+                    run_id, scenario_path, scenario.steps, scenario.load_base_kw)
         actual_metrics = _actual_metrics_from_rows(
             rows,
             buy_price=buy_price,
@@ -244,6 +255,8 @@ def run_online_mpc(
                 demand_rate=demand_rate,
                 billing_days=billing_days,
                 target_peak_kw=target_peak_kw,
+                forecast_model_path=forecast_model_path,
+                forecast_history_file=forecast_history_file,
             )
         )
         if isinstance(runner_result, MpcRunnerResult):

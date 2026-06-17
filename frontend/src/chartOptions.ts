@@ -17,22 +17,30 @@ interface SeriesOption {
   showSymbol?: boolean;
   smooth?: boolean;
   yAxisIndex?: number;
-  data: Array<number | null>;
+  xAxisIndex?: number;
+  data?: Array<number | null>;
+  datasetIndex?: number;
+  encode?: Record<string, string>;
+  stack?: string;
+  barWidth?: string | number;
+  barGap?: string;
+  label?: Record<string, unknown>;
   lineStyle?: Record<string, string | number>;
   itemStyle?: Record<string, unknown>;
-  barWidth?: string | number;
   markLine?: Record<string, unknown>;
 }
 
 export interface DashboardChartOption {
   [key: string]: unknown;
-  color: string[];
-  tooltip: { trigger: "axis"; formatter?: (params: Array<{ seriesName: string; data: number | null; dataIndex: number }>) => string };
+  color?: string[];
+  textStyle?: Record<string, string>;
+  tooltip: { trigger: string; axisPointer?: Record<string, unknown>; formatter?: unknown };
   legend: Record<string, unknown> & { top: number; data: string[] };
   grid: Record<string, number>;
-  xAxis: AxisOption;
+  xAxis: AxisOption | AxisOption[];
   yAxis: AxisOption | AxisOption[];
-  dataZoom: Array<Record<string, string | number>>;
+  dataZoom?: Array<Record<string, string | number>>;
+  dataset?: Array<Record<string, unknown>>;
   series: SeriesOption[];
 }
 
@@ -61,11 +69,11 @@ function qualityLabel(point: DashboardSeriesPoint, seriesName: string): string {
   const quality = point.display_quality;
   if (!quality) return "";
   const field =
-    seriesName === "工厂电网功率"
+    seriesName === "电网功率"
       ? quality.grid_power_kw
-      : seriesName === "工厂储能功率"
+      : seriesName === "储能功率"
         ? quality.battery_power_kw
-        : seriesName === "工厂SOC"
+        : seriesName === "SOC"
           ? quality.soc
           : "";
   if (field === "observed") return "真实";
@@ -94,10 +102,12 @@ export function buildPowerChartOption(series: DashboardSeriesPoint[]): Dashboard
   const legendData: string[] = [];
   const selected: Record<string, boolean> = {};
 
-  function addPair(label: string, factoryData: Array<number | null>, mpcData: Array<number | null>, options: { yAxisIndex?: number; defaultVisible?: boolean } = {}) {
-    const factoryName = `工厂${label}`;
+  function addPair(label: string, factoryData: Array<number | null>, mpcData: Array<number | null>, options: { yAxisIndex?: number; defaultVisible?: boolean; factoryPrefix?: string; color?: string } = {}) {
+    const prefix = options.factoryPrefix ?? "工厂";
+    const factoryName = `${prefix}${label}`;
     const mpcName = `MPC${label}`;
     const visible = Boolean(options.defaultVisible);
+    const baseColor = options.color;
 
     if (hasData(factoryData)) {
       legendData.push(factoryName);
@@ -109,7 +119,8 @@ export function buildPowerChartOption(series: DashboardSeriesPoint[]): Dashboard
         smooth: true,
         yAxisIndex: options.yAxisIndex,
         data: factoryData,
-        lineStyle: { type: "solid", width: visible ? 2.4 : 1.6 },
+        lineStyle: { type: "solid", width: visible ? 2.4 : 1.6, color: baseColor },
+        itemStyle: { color: baseColor },
       });
     }
 
@@ -123,31 +134,40 @@ export function buildPowerChartOption(series: DashboardSeriesPoint[]): Dashboard
         smooth: true,
         yAxisIndex: options.yAxisIndex,
         data: mpcData,
-        lineStyle: { type: "dashed", width: visible ? 2.4 : 1.6 },
+        lineStyle: { type: "dashed", width: visible ? 2.4 : 1.6, color: baseColor },
+        itemStyle: { color: baseColor },
       });
     }
   }
 
-  addPair("电网功率", factoryGrid, mpcGrid, { defaultVisible: true });
-  addPair("负荷功率", factoryLoad, mpcLoad);
-  addPair("光伏出力", factoryPv, mpcPv);
-  addPair("储能功率", factoryBattery, mpcBattery);
-  addPair("SOC", factorySoc, mpcSoc, { yAxisIndex: 1 });
+  addPair("电网功率", factoryGrid, mpcGrid, { defaultVisible: true, factoryPrefix: "", color: "#f4b766" });
+  addPair("负荷功率", factoryLoad, mpcLoad, { color: "#ff6b6b" });
+  addPair("光伏出力", factoryPv, mpcPv, { color: "#ffd166" });
+  addPair("储能功率", factoryBattery, mpcBattery, { defaultVisible: true, factoryPrefix: "", color: "#22c55e" });
+  addPair("SOC", factorySoc, mpcSoc, { defaultVisible: true, yAxisIndex: 1, factoryPrefix: "", color: "#9b59b6" });
 
   return {
-    color: ["#4ecdc4", "#4ecdc4", "#ff6b6b", "#ff6b6b", "#ffd166", "#ffd166", "#f39c12", "#f39c12", "#9b59b6", "#9b59b6"],
+    color: [],
     textStyle: darkChartText,
     tooltip: {
       trigger: "axis",
       formatter: (params) => {
-        return params
-          .map((param) => {
-            const point = series[param.dataIndex];
-            const label = point ? qualityLabel(point, param.seriesName) : "";
-            const suffix = label ? ` (${label})` : "";
-            return `${param.seriesName}: ${formatTooltipValue(param.data)}${suffix}`;
-          })
-          .join("<br/>");
+        const pt = series[params[0]?.dataIndex];
+        const timeStr = pt ? shortTime(pt.time) : "";
+        const header = timeStr
+          ? `<div style="margin-bottom:4px;color:#7cc7ff;font-weight:700">${timeStr}</div>`
+          : "";
+        return (
+          header +
+          params
+            .map((param) => {
+              const point = series[param.dataIndex];
+              const label = point ? qualityLabel(point, param.seriesName) : "";
+              const suffix = label ? ` (${label})` : "";
+              return `${param.seriesName}: ${formatTooltipValue(param.data)}${suffix}`;
+            })
+            .join("<br/>")
+        );
       },
     },
     legend: { top: 4, type: "scroll", data: legendData, selected, textStyle: { color: "#a9c9d8" } },
@@ -170,26 +190,27 @@ export function buildPowerChartOption(series: DashboardSeriesPoint[]): Dashboard
 }
 
 export function buildRevenueChartOption(series: DashboardSeriesPoint[]): DashboardChartOption {
+  // Data-transform-filter style: use dataset with dimensions
   let cumulative = 0;
-  const revenue = series.map((point) => {
+  const source: Array<Record<string, string | number>> = [];
+  for (const point of series) {
     if (point.actual_grid_power_kw !== null && point.mpc_grid_power_kw !== null) {
       const price = point.buy_price ?? 0.986;
       cumulative += (point.actual_grid_power_kw - point.mpc_grid_power_kw) * price * 0.25;
     }
-    return round2(cumulative);
-  });
+    source.push({ time: shortTime(point.time), 累计收益: round2(cumulative) });
+  }
 
   return {
-    color: ["#38d8a8"],
     textStyle: darkChartText,
-    tooltip: { trigger: "axis" },
+    tooltip: {
+      trigger: "axis",
+      axisPointer: { type: "cross" },
+    },
     legend: { top: 4, data: ["累计收益"], textStyle: { color: "#a9c9d8" } },
     grid: { left: 54, right: 28, top: 48, bottom: 42 },
-    xAxis: {
-      type: "category",
-      data: series.map((point) => shortTime(point.time)),
-      boundaryGap: false,
-    },
+    dataset: [{ dimensions: ["time", "累计收益"], source }],
+    xAxis: { type: "category" },
     yAxis: { type: "value", name: "元", scale: true },
     dataZoom: [
       { type: "inside" },
@@ -201,65 +222,129 @@ export function buildRevenueChartOption(series: DashboardSeriesPoint[]): Dashboa
         type: "line",
         showSymbol: false,
         smooth: true,
-        data: revenue,
+        datasetIndex: 0,
+        encode: { x: "time", y: "累计收益" },
+        lineStyle: { color: "#38d8a8", width: 2.5 },
+        itemStyle: { color: "#38d8a8" },
       },
     ],
   };
 }
 
 export function buildRevenueComparisonChartOption(factoryRevenue: number | null | undefined, mpcRevenue: number | null | undefined): DashboardChartOption {
-  const factory = valueOrNull(factoryRevenue);
-  const mpc = valueOrNull(mpcRevenue);
+  // bar-negative style: horizontal bars, factory (-) on left, MPC (+) on right
+  const f = valueOrNull(factoryRevenue) ?? 0;
+  const m = valueOrNull(mpcRevenue) ?? 0;
 
   return {
-    color: ["#38d8a8"],
     textStyle: darkChartText,
-    tooltip: { trigger: "axis" },
-    legend: { top: 4, data: ["收益"], textStyle: { color: "#a9c9d8" } },
-    grid: { left: 42, right: 18, top: 38, bottom: 28 },
-    xAxis: {
-      type: "category",
-      data: ["工厂策略", "MPC策略"],
+    tooltip: {
+      trigger: "axis",
+      axisPointer: { type: "shadow" },
     },
-    yAxis: { type: "value", name: "元", scale: true },
-    dataZoom: [{ type: "inside" }],
+    legend: {
+      top: 4,
+      data: ["工厂策略", "MPC策略"],
+      textStyle: { color: "#a9c9d8" },
+    },
+    grid: { left: 18, right: 18, top: 48, bottom: 18 },
+    xAxis: {
+      type: "value",
+      axisLabel: { color: "#a9c9d8" },
+      splitLine: { lineStyle: { color: "rgba(92,200,236,0.12)" } },
+    },
+    yAxis: {
+      type: "category",
+      data: ["收益"],
+      axisLine: { show: false },
+      axisTick: { show: false },
+      axisLabel: { color: "#cfefff", fontWeight: 700 },
+    },
     series: [
       {
-        name: "收益",
+        name: "工厂策略",
         type: "bar",
-        barWidth: "46%",
-        data: [factory, mpc],
-        itemStyle: {
-          color: (params: { dataIndex: number }) => (params.dataIndex === 0 ? "#8db6c9" : "#38d8a8"),
-          borderRadius: [4, 4, 0, 0],
+        stack: "total",
+        barWidth: "36%",
+        label: {
+          show: true,
+          position: "left",
+          color: "#f4b766",
+          fontSize: 12,
+          fontWeight: 700,
+          formatter: () => `${f.toFixed(2)} 元`,
         },
+        itemStyle: { color: "#f4b766", borderRadius: [4, 0, 0, 4] },
+        data: [-Math.abs(f)],
+      },
+      {
+        name: "MPC策略",
+        type: "bar",
+        stack: "total",
+        barWidth: "36%",
+        label: {
+          show: true,
+          position: "right",
+          color: "#42d6a6",
+          fontSize: 12,
+          fontWeight: 700,
+          formatter: () => `${m.toFixed(2)} 元`,
+        },
+        itemStyle: { color: "#42d6a6", borderRadius: [0, 4, 4, 0] },
+        data: [Math.abs(m)],
       },
     ],
   };
 }
 
 export function buildDemandComparisonChartOption(factoryDemand: number | null | undefined, mpcDemand: number | null | undefined): DashboardChartOption {
+  // line-tooltip-touch style: bars with touch-friendly crosshair tooltip
+  const f = valueOrNull(factoryDemand) ?? 0;
+  const m = valueOrNull(mpcDemand) ?? 0;
+
   return {
-    color: ["#39d9ff"],
     textStyle: darkChartText,
-    tooltip: { trigger: "axis" },
+    tooltip: {
+      trigger: "axis",
+      axisPointer: {
+        type: "shadow",
+        shadowStyle: { color: "rgba(81,215,255,0.06)" },
+      },
+    },
     legend: { top: 4, data: ["最大需量"], textStyle: { color: "#a9c9d8" } },
-    grid: { left: 42, right: 18, top: 38, bottom: 28 },
+    grid: { left: 18, right: 18, top: 48, bottom: 18 },
     xAxis: {
       type: "category",
       data: ["工厂策略", "MPC策略"],
-      boundaryGap: false,
+      axisLabel: { color: "#cfefff", fontWeight: 700, fontSize: 13 },
+      axisTick: { show: false },
     },
-    yAxis: { type: "value", name: "kW", scale: true },
-    dataZoom: [{ type: "inside" }],
+    yAxis: {
+      type: "value",
+      name: "kW",
+      scale: true,
+      nameTextStyle: { color: "#a9c9d8" },
+      axisLabel: { color: "#a9c9d8" },
+      splitLine: { lineStyle: { color: "rgba(92,200,236,0.12)" } },
+    },
     series: [
       {
         name: "最大需量",
-        type: "line",
-        showSymbol: true,
-        smooth: true,
-        data: [valueOrNull(factoryDemand), valueOrNull(mpcDemand)],
-        lineStyle: { width: 2.6 },
+        type: "bar",
+        barWidth: "40%",
+        barGap: "30%",
+        label: {
+          show: true,
+          position: "top",
+          color: "#cfefff",
+          fontSize: 13,
+          fontWeight: 700,
+          formatter: (params: { value: number }) => `${(params.value).toFixed(1)} kW`,
+        },
+        data: [
+          { value: f, itemStyle: { color: "#f4b766", borderRadius: [4, 4, 0, 0] } },
+          { value: m, itemStyle: { color: "#42d6a6", borderRadius: [4, 4, 0, 0] } },
+        ],
       },
     ],
   };

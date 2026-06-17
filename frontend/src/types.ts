@@ -100,7 +100,33 @@ export interface RunMpcResponse {
   target_peak_kw: number | null;
   scenario_path: string;
   comparison: StrategyComparison | null;
+  scheduler_enabled?: boolean;
   message: string;
+}
+
+export interface ImportRawDataSheetResult {
+  sheet_name: string;
+  plant_id: string;
+  records: number;
+  skipped: number;
+}
+
+export interface ImportRawDataResponse {
+  success: boolean;
+  plant_id: string;
+  sheet_count: number;
+  sheets: ImportRawDataSheetResult[];
+  records_count: number;
+  total_rows: number;
+  skipped_rows: number;
+  file_size_kb: number;
+  parse_sec: number;
+  write_sec: number;
+  total_sec: number;
+  aggregated_windows?: number;
+  irradiance_updated?: number;
+  aggregation_error?: string;
+  log_file?: string;
 }
 
 export interface MpcHealthStatus {
@@ -110,7 +136,6 @@ export interface MpcHealthStatus {
   telemetry_windows: number;
   ok_windows: number;
   interpolated_windows: number;
-  continuous_from_month_start: boolean;
   continuous_ok_windows: number;
   last_run_id: string | null;
   last_run_status: string | null;
@@ -120,5 +145,23 @@ export interface MpcHealthStatus {
   has_gap: boolean;
   max_gap_minutes: number;
   new_windows_since_last: number;
+  monthly_demand_ref_set: boolean;
+  data_timed_out: boolean;
+  minutes_since_latest_data: number | null;
+  scheduler_enabled: boolean;
   checked_at: string;
+}
+
+export interface MpcProgress {
+  run_id: string;
+  step: number;
+  total_steps: number;
+  soc: number | null;
+  peak_kw: number | null;
+  running_cost: number | null;
+  battery_power_kw: number | null;
+  grid_power_kw: number | null;
+  load_kw: number | null;
+  pv_kw: number | null;
+  elapsed_seconds: number | null;
 }

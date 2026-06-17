@@ -213,7 +213,8 @@ def aggregate_telemetry_15min(
             soc_values,
             battery_power_mode=battery_power_mode,
         )
-        load_minus_pv = grid_avg + battery_avg if grid_avg is not None and battery_avg is not None else None
+        # 净负荷 = 电网功率 - 储能功率（储能充电为正）
+        load_minus_pv = grid_avg - battery_avg if grid_avg is not None and battery_avg is not None else None
         raw_grid_count = sum(1 for row in grid_rows if window_start <= row.time < window_end)
         raw_battery_count = sum(1 for row in battery_rows if window_start <= row.time < window_end)
         # 窗口内电价取均值

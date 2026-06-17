@@ -10,7 +10,14 @@ interface OptionChartProps {
 
 export function OptionChart({ option, emptyText, className = "" }: OptionChartProps) {
   const ref = useRef<HTMLDivElement | null>(null);
-  const hasSeriesData = option.series.some((serie) => serie.data.some((value) => value !== null));
+  const hasSeriesData = option.series.some((serie) => {
+    if (serie.data) return serie.data.some((value) => value !== null);
+    // dataset-driven series — check if any dataset has non-empty source
+    return option.dataset?.some((ds) => {
+      const src = ds.source as Array<unknown> | undefined;
+      return Array.isArray(src) && src.length > 0;
+    }) ?? false;
+  });
 
   useEffect(() => {
     if (!ref.current || !hasSeriesData) return;

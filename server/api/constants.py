@@ -19,9 +19,11 @@ DEFAULT_CORS_ORIGINS = [
 
 PLANT_ID_ALIASES = {
     "ecloud_factory": "hehong_huajin",
+    "ecloud_station_3341": "aolaide",
+    "aodelai": "aolaide",
 }
 
-ALL_PLANTS = ["hehong_huajin", "ecloud_station_3341"]
+ALL_PLANTS = ["hehong_huajin", "aolaide"]
 ALL_PROFILES = ["demand100", "demand70", "demand40"]
 
 PROFILE_CONFIGS: dict[str, dict[str, dict]] = {
@@ -30,7 +32,7 @@ PROFILE_CONFIGS: dict[str, dict[str, dict]] = {
         "demand70": {"demand_rate": 27.3, "target_peak_ratio": 0.70, "demand_label": "70%需量+峰谷套利"},
         "demand40": {"demand_rate": 15.6, "target_peak_ratio": 0.40, "demand_label": "40%需量+峰谷套利"},
     },
-    "ecloud_station_3341": {
+    "aolaide": {
         "demand100": {"demand_rate": 39.0, "target_peak_ratio": 1.0, "demand_label": "100%需量+峰谷套利"},
         "demand70": {"demand_rate": 27.3, "target_peak_ratio": 0.70, "demand_label": "70%需量+峰谷套利"},
         "demand40": {"demand_rate": 15.6, "target_peak_ratio": 0.40, "demand_label": "40%需量+峰谷套利"},

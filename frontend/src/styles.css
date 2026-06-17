@@ -139,6 +139,22 @@ select:focus-visible {
   text-shadow: 0 0 14px rgba(81, 215, 255, 0.32);
 }
 
+.export-btn {
+  height: 24px;
+  margin-left: 12px;
+  padding: 0 10px;
+  color: var(--green);
+  font-size: 11px;
+  font-weight: 600;
+  border: 1px solid rgba(66, 214, 166, 0.35);
+  border-radius: 4px;
+  background: rgba(66, 214, 166, 0.1);
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s;
+}
+.export-btn:hover { background: rgba(66, 214, 166, 0.22); border-color: rgba(66, 214, 166, 0.55); }
+.export-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
 .plant-picker {
   position: relative;
   display: flex;
@@ -492,7 +508,7 @@ select:focus-visible {
 .rail-card:nth-child(2) { flex: 1; }
 .rail-card:nth-child(3) { flex: 1.08; }
 .rail-card:nth-child(4) { flex: 2.35; }
-.rail-card:nth-child(5) { flex: 0.92; }
+.rail-card:nth-child(5) { flex: 1.2; }
 
 .data-import-card {
   flex: 1;
@@ -712,6 +728,7 @@ select:focus-visible {
   background:
     linear-gradient(180deg, rgba(12, 48, 72, 0.98), rgba(4, 18, 31, 0.98));
 }
+
 
 .compact-meta {
   padding-top: 10px;
@@ -1008,4 +1025,83 @@ select:focus-visible {
   0% { transform: translateX(-100%); }
   50% { transform: translateX(100%); }
   100% { transform: translateX(-100%); }
+}
+
+/* ── 信息提示徽章 ── */
+.info-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin-left: 6px;
+  border: 1px solid rgba(92, 200, 236, 0.4);
+  border-radius: 50%;
+  color: var(--cyan);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: help;
+  flex-shrink: 0;
+  transition: border-color 0.2s, background 0.2s;
+  position: relative;
+}
+
+.info-badge:hover {
+  border-color: var(--cyan);
+  background: rgba(81, 215, 255, 0.15);
+}
+
+.info-badge::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  left: calc(100% + 8px);
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: rgba(10, 37, 58, 0.98);
+  border: 1px solid rgba(92, 200, 236, 0.5);
+  color: var(--muted-strong);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.4;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s ease-out;
+  z-index: 99;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+.info-badge:hover::after {
+  opacity: 1;
+}
+
+/* ── 需量管理双行卡片 ── */
+.demand-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.demand-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.demand-label {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+.demand-row strong {
+  font-size: clamp(15px, 1vw, 19px);
+  margin-top: 0;
+  flex: 1;
+  text-align: right;
 }

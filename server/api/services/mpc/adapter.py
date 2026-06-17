@@ -71,7 +71,10 @@ def export_mpc_scenario_from_telemetry(
             .order_by(Telemetry15Min.start_time)
         )
     )
-    _validate_rows(rows)
+    # Filter to only ready windows (skip incomplete/missing ones)
+    rows = [r for r in rows if r.quality_flag == "ok" and r.load_minus_pv_kw_avg is not None]
+    if not rows:
+        raise ValueError("no ready telemetry rows found")
     base_kw = _load_base_from_rows(rows, load_base_kw)
 
     times = [row.start_time for row in rows]

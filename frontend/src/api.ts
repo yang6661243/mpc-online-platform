@@ -1,4 +1,4 @@
-import type { DashboardResponse, DisplaySeriesResponse, MpcHealthStatus, RunMpcRequest, RunMpcResponse } from "./types";
+import type { DashboardResponse, DisplaySeriesResponse, ImportRawDataResponse, MpcHealthStatus, MpcProgress, RunMpcRequest, RunMpcResponse } from "./types";
 
 export interface DashboardRequestOptions {
   windowHours: number;
@@ -90,13 +90,7 @@ export function buildImportRawDataUrl(): string {
 export async function importRawData(
   file: File,
   signal?: AbortSignal,
-): Promise<{
-  success: boolean; plant_id: string; sheet_name: string; records_count: number;
-  total_rows: number; skipped_rows: number; file_size_kb: number;
-  parse_sec: number; write_sec: number; total_sec: number;
-  aggregated_windows?: number; irradiance_updated?: number;
-  aggregation_error?: string; log_file?: string;
-}> {
+): Promise<ImportRawDataResponse> {
   const formData = new FormData();
   formData.append("file", file);
   const response = await fetch(buildImportRawDataUrl(), {
@@ -218,5 +212,27 @@ export async function setMonthlyDemandRef(
     try { const body = await response.json(); detail = typeof body.detail === "string" ? `: ${body.detail}` : ""; } catch { detail = ""; }
     throw new Error(`set demand ref failed: HTTP ${response.status}${detail}`);
   }
+  return response.json();
+}
+
+export async function clearData(signal?: AbortSignal): Promise<{ success: boolean; deleted: Record<string, number> }> {
+  const response = await fetch("/api/v1/admin/clear-data", { method: "POST", signal });
+  if (!response.ok) {
+    let detail = "";
+    try { const body = await response.json(); detail = typeof body.detail === "string" ? `: ${body.detail}` : ""; } catch { detail = ""; }
+    throw new Error(`清空数据失败: HTTP ${response.status}${detail}`);
+  }
+  return response.json();
+}
+
+export async function fetchMpcProgress(
+  runId: string,
+  signal?: AbortSignal,
+): Promise<MpcProgress | { run_id: string; status: string }> {
+  const response = await fetch(
+    `/api/v1/mpc/runs/${encodeURIComponent(runId)}/progress/latest`,
+    { signal },
+  );
+  if (!response.ok) throw new Error(`progress request failed: HTTP ${response.status}`);
   return response.json();
 }

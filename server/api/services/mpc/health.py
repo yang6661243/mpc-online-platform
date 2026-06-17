@@ -3,8 +3,7 @@
 Each (plant_id, profile) pair gets its own MpcHealthChecker that:
 1. Periodically assesses data completeness and continuity.
 2. Detects and fills small gaps (≤ 5 min) via ``gap_filler``.
-3. Checks month‑start continuity; blocks auto‑run when the monthly reference
-   demand has not been entered by the user (→ ``awaiting_demand_ref``).
+3. Detects data timeout when no new telemetry_15min for > 20 min.
 4. Coordinates with the shared ``MpcScheduler`` to serialise runs within a
    plant while allowing different plants to run in parallel.
 5. After each successful MPC run, invokes the Fuzzy PID decomposition
@@ -32,35 +31,33 @@ logger = logging.getLogger(__name__)
 CHECK_INTERVAL_SECONDS = 30
 MIN_WINDOWS_FOR_READY = 96
 PERIODIC_TRIGGER_MINUTES = {0, 15, 30, 45}
-AUTO_TRIGGER_MIN_NEW_WINDOWS = 4
 MAX_GAP_MINUTES = 5
+DATA_TIMEOUT_MINUTES = 20
 
 # ── state constants ─────────────────────────────────────────────────────────
 
 STATE_IDLE = "idle"
 STATE_ACCUMULATING = "accumulating"
-STATE_PARTIAL_MONTH = "partial_month"
 STATE_AWAITING_DEMAND_REF = "awaiting_demand_ref"
 STATE_READY = "ready"
-STATE_CATCHING_UP = "catching_up"
 STATE_RUNNING = "running"
 STATE_RUNNING_FUZZY = "running_fuzzy"
 STATE_SUCCEEDED = "succeeded"
 STATE_FAILED = "failed"
 STATE_DATA_GAP = "data_gap"
+STATE_DATA_TIMEOUT = "data_timeout"
 
 STATE_LABELS: dict[str, str] = {
     STATE_IDLE: "等待数据",
     STATE_ACCUMULATING: "数据积累中",
-    STATE_PARTIAL_MONTH: "月初数据缺失",
     STATE_AWAITING_DEMAND_REF: "等待输入本月参考需量",
     STATE_READY: "数据就绪",
-    STATE_CATCHING_UP: "追赶中",
     STATE_RUNNING: "MPC 运行中",
     STATE_RUNNING_FUZZY: "Fuzzy PID 分解中",
     STATE_SUCCEEDED: "运行成功",
     STATE_FAILED: "运行失败",
     STATE_DATA_GAP: "数据中断",
+    STATE_DATA_TIMEOUT: "数据获取超时",
 }
 
 
@@ -76,7 +73,6 @@ class MpcHealthStatus:
     telemetry_windows: int = 0
     ok_windows: int = 0
     interpolated_windows: int = 0
-    continuous_from_month_start: bool = False
     continuous_ok_windows: int = 0
     last_run_id: str | None = None
     last_run_status: str | None = None
@@ -87,6 +83,9 @@ class MpcHealthStatus:
     max_gap_minutes: float = 0.0
     new_windows_since_last: int = 0
     monthly_demand_ref_set: bool = False
+    data_timed_out: bool = False
+    minutes_since_latest_data: float | None = None
+    scheduler_enabled: bool = False
     checked_at: str = ""
 
 
@@ -105,10 +104,10 @@ RunFuzzyPidFunc = Callable[[str, str, str, datetime, datetime], list]
 class MpcScheduler:
     """Coordinates MPC runs across profiles within one plant.
 
-    - Catch‑up phase: profiles run round‑robin serially.
-    - Periodic phase: at :00/:15/:30/:45 each hour, all profiles run serially.
-    - Only one profile runs at a time per plant (different plants may run in
-      parallel via separate scheduler instances).
+    - Default disabled. Manual trigger enables it.
+    - Once enabled, auto-runs on periodic triggers (:00/:15/:30/:45).
+    - Data timeout disables the scheduler.
+    - Only one profile runs at a time per plant.
     """
 
     def __init__(
@@ -124,40 +123,39 @@ class MpcScheduler:
         self._run_fuzzy = run_fuzzy
         self._lock = asyncio.Lock()
         self._last_periodic_trigger: datetime | None = None
+        self._last_aggregate_time: datetime | None = None
+        self.enabled: bool = False
+
+    def enable(self) -> None:
+        self.enabled = True
+        logger.info("scheduler ENABLED: %s", self.plant_id)
+
+    def disable(self) -> None:
+        self.enabled = False
+        logger.info("scheduler DISABLED: %s", self.plant_id)
 
     async def maybe_trigger(
         self,
         session_factory: Callable[[], Session],
     ) -> None:
-        """Called from each checker tick.  If this plant has a runnable
-        profile and the scheduler is free, run it.
-        """
+        """Called from each checker tick. Only active when enabled."""
+        if not self.enabled:
+            return
         if self._lock.locked():
-            return  # a profile is already running
+            return
 
-        # Check if we are in a periodic window
         now = datetime.now()
-        in_periodic_window = now.minute in PERIODIC_TRIGGER_MINUTES and now.second < 60
+        if now.minute in PERIODIC_TRIGGER_MINUTES:
+            return  # let periodic scheduler handle it
 
-        # Only trigger at most once per minute window
-        trigger_key = now.replace(second=0, microsecond=0)
-        if in_periodic_window:
-            if self._last_periodic_trigger == trigger_key:
-                return
-        else:
-            # Catch‑up mode: run whenever a profile is ready
-            pass
-
+        # Catch-up: check for new data and run if available
         session = session_factory()
         try:
             for profile in self.profiles:
-                status = self._assess_profile(session, profile)
-                if status.state in (STATE_READY, STATE_CATCHING_UP, STATE_FAILED):
+                if self._has_new_raw_data(session):
                     async with self._lock:
-                        await self._run_profile_chain(session, profile)
-                    if in_periodic_window:
-                        self._last_periodic_trigger = trigger_key
-                    break  # one per tick in catch‑up; in periodic we run all
+                        await self._run_full_chain(session, profile)
+                    break
         finally:
             session.close()
 
@@ -165,23 +163,103 @@ class MpcScheduler:
         self,
         session_factory: Callable[[], Session],
     ) -> None:
-        """Run all profiles serially (periodic phase)."""
+        """Run all profiles serially (periodic phase). Only when enabled."""
+        if not self.enabled:
+            return
         async with self._lock:
             session = session_factory()
             try:
                 for profile in self.profiles:
-                    await self._run_profile_chain(session, profile)
+                    if self._has_new_raw_data(session):
+                        await self._run_full_chain(session, profile)
             finally:
                 session.close()
 
-    async def _run_profile_chain(self, session: Session, profile: str) -> None:
-        """Execute the full chain for one profile: MPC → Fuzzy PID."""
-        from api.mpc_run import run_online_mpc, make_run_id
+    def _has_new_raw_data(self, session: Session) -> bool:
+        """Check if raw data exists newer than last aggregation time."""
+        from api.database.orm import RawTelemetry
+        latest_raw = session.scalar(
+            select(RawTelemetry.time)
+            .where(RawTelemetry.plant_id == self.plant_id)
+            .order_by(RawTelemetry.time.desc())
+            .limit(1)
+        )
+        if latest_raw is None:
+            return False
+        if self._last_aggregate_time is None or latest_raw > self._last_aggregate_time:
+            return True
+        return False
+
+    def mark_aggregated(self, agg_time: datetime) -> None:
+        self._last_aggregate_time = agg_time
+
+    async def _run_full_chain(self, session: Session, profile: str) -> None:
+        """Execute the full chain: aggregate → irradiance → MPC → Fuzzy PID."""
+        from api.services.aggregation import aggregate_telemetry_15min
+        from api.services.irradiance import fetch_and_store_irradiance
+        from api.services.plant_config import load_plant_config
+        from api.constants import PROJECT_ROOT
+        from api.database.orm import RawTelemetry, StrategyCurvePoint
 
         plant_id = self.plant_id
+
+        # ── Get raw data range ──
+        raw_times = list(
+            session.scalars(
+                select(RawTelemetry.time)
+                .where(RawTelemetry.plant_id == plant_id)
+                .order_by(RawTelemetry.time)
+            )
+        )
+        if not raw_times:
+            logger.info("Scheduler: no raw data for %s, skipping", plant_id)
+            return
+        raw_start = raw_times[0]
+        raw_end = raw_times[-1]
+
+        # ── Aggregate ──
+        logger.info("Scheduler: aggregating %s from %s to %s", plant_id, raw_start, raw_end)
+        aggregate_telemetry_15min(
+            session,
+            plant_id=plant_id,
+            start_time=raw_start.isoformat(),
+            end_time=raw_end.isoformat(),
+        )
+        self.mark_aggregated(raw_end)
+
+        # ── Irradiance (if plant has PV) ──
+        try:
+            config_names = {"hehong_huajin": "hehong_huajin", "aolaide": "aodelai"}
+            config_name = config_names.get(plant_id, plant_id)
+            cfg_path = PROJECT_ROOT / "mpc" / "configs" / "plants" / f"{config_name}.yaml"
+            if cfg_path.exists():
+                cfg = load_plant_config(cfg_path)
+                if getattr(cfg.pv, "capacity_kw", 0) > 0:
+                    agg_rows = list(
+                        session.scalars(
+                            select(Telemetry15Min)
+                            .where(Telemetry15Min.plant_id == plant_id)
+                            .order_by(Telemetry15Min.start_time)
+                        )
+                    )
+                    if agg_rows:
+                        logger.info("Scheduler: fetching irradiance for %s", plant_id)
+                        fetch_and_store_irradiance(
+                            session, plant_id=plant_id,
+                            start_time=agg_rows[0].start_time,
+                            end_time=agg_rows[-1].end_time,
+                            latitude=cfg.location.latitude,
+                            longitude=cfg.location.longitude,
+                        )
+        except Exception as exc:
+            logger.warning("Irradiance fetch skipped for %s: %s", plant_id, exc)
+
+        # ── Run MPC ──
+        from api.services.mpc.orchestrator import run_online_mpc
+        from api.services.mpc.orchestrator import make_run_id
+
         run_id = make_run_id(f"auto_{plant_id}_{profile}_{datetime.now():%Y%m%d_%H%M%S}")
 
-        # Determine time range from telemetry
         rows = list(
             session.scalars(
                 select(Telemetry15Min)
@@ -190,27 +268,28 @@ class MpcScheduler:
             )
         )
         if not rows:
+            logger.info("Scheduler: no telemetry for %s, skipping MPC", plant_id)
             return
         from_time = rows[0].start_time
         to_time = rows[-1].end_time or rows[-1].start_time + timedelta(minutes=15)
 
-        # Mark as running
         run = MpcRun(
-            run_id=run_id,
-            plant_id=plant_id,
-            profile=profile,
-            status="running",
-            started_at=datetime.now(),
+            run_id=run_id, plant_id=plant_id, profile=profile,
+            status="running", started_at=datetime.now(),
         )
         session.add(run)
         session.commit()
 
         try:
-            logger.info("MPC starting: %s/%s run=%s", plant_id, profile, run_id)
+            logger.info("MPC starting: %s/%s run=%s from=%s to=%s",
+                        plant_id, profile, run_id, from_time, to_time)
             self._run_mpc(plant_id, profile, run_id, from_time, to_time)
             run.status = "succeeded"
             run.finished_at = datetime.now()
             session.commit()
+
+            # Persist MPC results to telemetry_15min
+            _persist_mpc_results(session, run_id, plant_id)
 
             # Fuzzy PID decomposition
             logger.info("Fuzzy PID starting: %s/%s run=%s", plant_id, profile, run_id)
@@ -230,6 +309,39 @@ class MpcScheduler:
             profile=profile,
         )
         return checker._assess(session)
+
+
+def _persist_mpc_results(session: Session, run_id: str, plant_id: str) -> None:
+    """Write MPC strategy curve points back into telemetry_15min as MPC fields."""
+    from api.database.orm import StrategyCurvePoint
+    points = list(
+        session.scalars(
+            select(StrategyCurvePoint)
+            .where(StrategyCurvePoint.run_id == run_id)
+            .order_by(StrategyCurvePoint.time)
+        )
+    )
+    if not points:
+        return
+    for pt in points:
+        window_start = pt.time
+        existing = session.scalar(
+            select(Telemetry15Min).where(
+                Telemetry15Min.plant_id == plant_id,
+                Telemetry15Min.start_time == window_start,
+            )
+        )
+        if existing:
+            existing.mpc_grid_power_kw_avg = pt.mpc_grid_power_kw
+            existing.mpc_battery_power_kw_avg = pt.mpc_battery_power_kw
+            existing.mpc_soc = pt.mpc_soc
+            existing.mpc_load_kw = pt.mpc_load_kw
+            existing.mpc_pv_kw = pt.mpc_pv_kw
+            existing.buy_price = existing.buy_price or pt.buy_price
+            existing.sell_price = existing.sell_price or pt.sell_price
+    session.commit()
+    logger.info("Persisted MPC results to telemetry_15min: %d windows for run=%s",
+                len(points), run_id)
 
 
 # ── health checker ──────────────────────────────────────────────────────────
@@ -271,12 +383,20 @@ class MpcHealthChecker:
 
     # ── assessment ──────────────────────────────────────────────────────
 
+    def _get_latest_telemetry_time(self, session: Session) -> datetime | None:
+        latest = session.scalar(
+            select(Telemetry15Min.end_time)
+            .where(Telemetry15Min.plant_id == self.plant_id)
+            .order_by(Telemetry15Min.end_time.desc())
+            .limit(1)
+        )
+        return latest
+
     def _assess(self, session: Session) -> MpcHealthStatus:
         now = datetime.now()
         total = self._count_windows(session)
         ok_count = self._count_windows(session, quality="ok")
         interp_count = self._count_windows(session, quality="interpolated")
-        month_continuous = self._check_month_start_continuity(session)
         continuous_ok = self._count_continuous_ok(session)
         demand_ref_set = self._check_monthly_demand_ref(session)
 
@@ -295,10 +415,17 @@ class MpcHealthChecker:
         max_gap = max_gap_minutes(session, plant_id=self.plant_id)
         has_gap = max_gap > MAX_GAP_MINUTES
 
+        # Data timeout: latest telemetry > DATA_TIMEOUT_MINUTES ago
+        latest_time = self._get_latest_telemetry_time(session)
+        mins_since_latest = (
+            (now - latest_time).total_seconds() / 60.0 if latest_time else None
+        )
+        data_timed_out = mins_since_latest is not None and mins_since_latest > DATA_TIMEOUT_MINUTES
+
         state = self._determine_state(
             total=total,
-            month_continuous=month_continuous,
             has_gap=has_gap,
+            data_timed_out=data_timed_out,
             demand_ref_set=demand_ref_set,
             last_run_status=last_run_status,
         )
@@ -311,7 +438,6 @@ class MpcHealthChecker:
             telemetry_windows=total,
             ok_windows=ok_count,
             interpolated_windows=interp_count,
-            continuous_from_month_start=month_continuous,
             continuous_ok_windows=continuous_ok,
             last_run_id=last_run_id,
             last_run_status=last_run_status,
@@ -322,6 +448,9 @@ class MpcHealthChecker:
             max_gap_minutes=round(max_gap, 1),
             new_windows_since_last=new_since,
             monthly_demand_ref_set=demand_ref_set,
+            data_timed_out=data_timed_out,
+            minutes_since_latest_data=round(mins_since_latest, 1) if mins_since_latest is not None else None,
+            scheduler_enabled=False,  # updated by mpc route / scheduler
             checked_at=now.isoformat(),
         )
 
@@ -331,8 +460,8 @@ class MpcHealthChecker:
         self,
         *,
         total: int,
-        month_continuous: bool,
         has_gap: bool,
+        data_timed_out: bool,
         demand_ref_set: bool,
         last_run_status: str | None,
     ) -> str:
@@ -344,11 +473,10 @@ class MpcHealthChecker:
             return STATE_RUNNING_FUZZY
         if has_gap:
             return STATE_DATA_GAP
+        if data_timed_out:
+            return STATE_DATA_TIMEOUT
         if total < self.horizon_steps:
             return STATE_ACCUMULATING
-        if not month_continuous:
-            return STATE_PARTIAL_MONTH
-        # Data is sufficient and month‑continuous — check demand ref
         if not demand_ref_set:
             return STATE_AWAITING_DEMAND_REF
         if last_run_status == "failed":
@@ -370,49 +498,6 @@ class MpcHealthChecker:
             )
         )
         return ref is not None
-
-    def _check_month_start_continuity(self, session: Session) -> bool:
-        now = datetime.now()
-        month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-        first = session.scalar(
-            select(Telemetry15Min)
-            .where(
-                Telemetry15Min.plant_id == self.plant_id,
-                Telemetry15Min.start_time >= month_start,
-            )
-            .order_by(Telemetry15Min.start_time)
-            .limit(1)
-        )
-        if first is None:
-            return False
-        if first.start_time and (first.start_time - month_start) > timedelta(minutes=30):
-            return False
-
-        expected = first.start_time
-        rows = list(
-            session.scalars(
-                select(Telemetry15Min)
-                .where(
-                    Telemetry15Min.plant_id == self.plant_id,
-                    Telemetry15Min.start_time >= first.start_time,
-                )
-                .order_by(Telemetry15Min.start_time)
-            )
-        )
-        for row in rows:
-            if row.start_time is None:
-                continue
-            gap = (row.start_time - expected).total_seconds()
-            if gap > 15 * 60 + 30:
-                return False
-            if row.quality_flag not in ("ok", "interpolated"):
-                return False
-            expected = row.end_time if row.end_time else row.start_time + timedelta(minutes=15)
-
-        latest = rows[-1].end_time if rows else None
-        if latest is None or (now - latest) > timedelta(minutes=30):
-            return False
-        return True
 
     def _count_continuous_ok(self, session: Session) -> int:
         rows = list(
@@ -488,11 +573,10 @@ async def run_periodic_scheduler(
     scheduler: MpcScheduler,
     session_factory: Callable[[], Session],
 ) -> None:
-    """Wake up at :00, :15, :30, :45 and run all profiles."""
+    """Wake up at :00, :15, :30, :45 and run all profiles (if enabled)."""
     logger.info("periodic scheduler started: %s", scheduler.plant_id)
     while True:
         now = datetime.now()
-        # Sleep until next 15‑minute boundary + 5 s (allow data to settle)
         minute = now.minute
         next_minute = ((minute // 15) + 1) * 15
         if next_minute >= 60:

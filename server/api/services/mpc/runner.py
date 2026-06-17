@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -11,6 +12,8 @@ import yaml
 
 from api.services.comparison import StrategyMetrics
 from api.services.mpc.orchestrator import MpcRunnerResult, OnlineMpcRunInput
+
+logger = logging.getLogger(__name__)
 
 
 CommandRunner = Callable[[Sequence[str], Path], None]
@@ -41,7 +44,46 @@ class MicrogridMpcCliRunnerConfig:
 
 
 def _default_command_runner(command: Sequence[str], cwd: Path) -> None:
-    subprocess.run(list(command), cwd=cwd, check=True)
+    cmd_str = " ".join(str(c) for c in command)
+    logger.info("MPC CLI start: %s (cwd=%s)", cmd_str, cwd)
+    result = subprocess.run(
+        list(command), cwd=cwd,
+        capture_output=True, text=True,
+    )
+    if result.stdout:
+        logger.info("MPC CLI stdout:\n%s", result.stdout)
+    if result.stderr:
+        logger.warning("MPC CLI stderr:\n%s", result.stderr)
+    if result.returncode != 0:
+        stderr_tail = result.stderr.strip().split("\n")[-5:] if result.stderr else []
+        detail = "\n".join(stderr_tail) if stderr_tail else f"exit code {result.returncode}"
+        raise RuntimeError(f"MPC CLI failed: {detail}")
+
+
+import re
+
+_PROGRESS_RE = re.compile(
+    r"^\s*step\s+(\d+)/(\d+)\s+"
+    r"day=[\d.]+\/[\d.]+:\s+"
+    r"SOC=([\d.]+)\s+"
+    r"peak=([\d.]+)kW\s+"
+    r"cost=([\d.]+)\s+"
+    r"elapsed=([\d.]+)s"
+)
+
+
+def _parse_progress_line(line: str) -> dict | None:
+    m = _PROGRESS_RE.match(line)
+    if not m:
+        return None
+    return {
+        "step": int(m.group(1)),
+        "total_steps": int(m.group(2)),
+        "soc": float(m.group(3)),
+        "peak_kw": float(m.group(4)),
+        "running_cost": float(m.group(5)),
+        "elapsed_seconds": float(m.group(6)),
+    }
 
 
 def _metric_value(cost_summary: pd.DataFrame, name: str) -> float:
@@ -101,36 +143,79 @@ class MicrogridMpcCliRunner:
         *,
         command_runner: CommandRunner | None = None,
         python_executable: str | None = None,
+        session_factory=None,
     ) -> None:
         self.config = config
         self.command_runner = command_runner or _default_command_runner
         self.python_executable = python_executable or sys.executable
+        self.session_factory = session_factory
 
     def __call__(self, run_input: OnlineMpcRunInput) -> MpcRunnerResult:
         root = Path(self.config.project_root)
         run_dir = Path(run_input.scenario.output_path).parent
         output_path = run_dir / "microgrid_mpc_result.xlsx"
         config_path = run_dir / "microgrid_mpc_config.yaml"
-        config_path.write_text(
-            yaml.safe_dump(
-                self._build_config(run_input, output_path),
-                sort_keys=False,
-                allow_unicode=True,
-            ),
-            encoding="utf-8",
-        )
+
+        config_dict = self._build_config(run_input, output_path)
+        config_yaml = yaml.safe_dump(config_dict, sort_keys=False, allow_unicode=True)
+        config_path.write_text(config_yaml, encoding="utf-8")
+        logger.info("MPC config written to %s:\n%s", config_path, config_yaml)
+
         command = [
-            self.python_executable,
-            "-m",
-            "mpc.microgrid.mpc",
-            "--config",
-            str(config_path),
+            self.python_executable, "-m", "mpc.microgrid.mpc",
+            "--config", str(config_path),
         ]
-        self.command_runner(command, root)
-        return MpcRunnerResult(
-            metrics=parse_microgrid_mpc_output(output_path),
-            curve=parse_microgrid_mpc_curve(output_path),
+
+        # Stream stdout to capture per‑step progress
+        self._run_with_progress(command, root, run_input.run_id)
+
+        logger.info("MPC output: %s", output_path)
+        metrics = parse_microgrid_mpc_output(output_path)
+        curve = parse_microgrid_mpc_curve(output_path)
+        logger.info("MPC run complete: peak=%.1f kW, cost=%.2f yuan, curve_points=%d",
+                    metrics.peak_kw, metrics.total_cost_yuan, len(curve))
+        return MpcRunnerResult(metrics=metrics, curve=curve)
+
+    def _run_with_progress(self, command: list[str], cwd: Path, run_id: str) -> None:
+        """Run MPC CLI subprocess, streaming stdout and saving progress to DB."""
+        from api.database.orm import MpcRunProgress
+
+        cmd_str = " ".join(str(c) for c in command)
+        logger.info("MPC CLI start: %s (cwd=%s)", cmd_str, cwd)
+        proc = subprocess.Popen(
+            list(command), cwd=cwd,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True,
         )
+        assert proc.stdout is not None
+
+        for line in proc.stdout:
+            line = line.rstrip()
+            # Parse progress line: "  step 24/5761 day=1.00/60: SOC=0.500 peak=400.0kW cost=5000 elapsed=30s"
+            progress = _parse_progress_line(line)
+            if progress:
+                progress["run_id"] = run_id
+                logger.info("MPC progress: %s", line)
+                if self.session_factory:
+                    try:
+                        sess = self.session_factory()
+                        sess.add(MpcRunProgress(**progress))
+                        sess.commit()
+                        sess.close()
+                    except Exception as exc:
+                        logger.warning("Failed to save MPC progress: %s", exc)
+            else:
+                logger.info("MPC: %s", line)
+
+        proc.wait()
+        # Capture stderr
+        stderr_text = proc.stderr.read() if proc.stderr else ""
+        if stderr_text:
+            logger.warning("MPC CLI stderr:\n%s", stderr_text)
+        if proc.returncode != 0:
+            stderr_tail = stderr_text.strip().split("\n")[-5:] if stderr_text else []
+            detail = "\n".join(stderr_tail) if stderr_tail else f"exit code {proc.returncode}"
+            raise RuntimeError(f"MPC CLI failed: {detail}")
 
     def _build_config(self, run_input: OnlineMpcRunInput, output_path: Path) -> dict:
         soc_init = self._initial_soc(run_input)
@@ -141,7 +226,7 @@ class MicrogridMpcCliRunner:
         if target_peak_kw <= 0:
             raise ValueError("target_peak_kw must be positive")
 
-        return {
+        result = {
             "scenario": {
                 "data_file": str(run_input.scenario.output_path),
                 "sheets": {
@@ -182,7 +267,7 @@ class MicrogridMpcCliRunner:
             "mpc": {
                 "days": max(1, int((run_input.scenario.steps + 95) // 96)),
                 "horizon_steps": min(self.config.horizon_steps, max(1, run_input.scenario.steps)),
-                "forecast_mode": "file",
+                **self._forecast_config(run_input),
                 "start_step": 0,
                 "target_peak_mode": "manual",
                 "target_peak_kw": float(target_peak_kw),
@@ -190,13 +275,39 @@ class MicrogridMpcCliRunner:
                 "enable_battery_power_smoothing": self.config.enable_battery_power_smoothing,
                 "battery_ramp_limit_kw": self.config.battery_ramp_limit_kw,
                 "battery_smooth_penalty": self.config.battery_smooth_penalty,
-                "progress_interval_steps": max(1, run_input.scenario.steps),
+                "progress_interval_steps": 24,  # 每 6 小时仿真时间输出一次进度
             },
             "vpp": {
                 "enabled": False,
             },
             "output": str(output_path),
         }
+        hist = self._forecast_history_section(run_input)
+        if hist:
+            result.update(hist)
+        return result
+
+    def _forecast_config(self, run_input: OnlineMpcRunInput) -> dict:
+        """Return forecast-related MPC config keys."""
+        model_path = getattr(run_input, "forecast_model_path", None)
+        if model_path:
+            return {"forecast_mode": "lightgbm", "model_path": model_path}
+        return {"forecast_mode": "file"}
+
+    def _forecast_history_section(self, run_input: OnlineMpcRunInput) -> dict | None:
+        """Return top-level forecast_history section if model is used with warm-start data."""
+        model_path = getattr(run_input, "forecast_model_path", None)
+        history_file = getattr(run_input, "forecast_history_file", None)
+        history_sheet = getattr(run_input, "forecast_history_sheet", "load")
+        if model_path and history_file:
+            return {
+                "forecast_history": {
+                    "data_file": history_file,
+                    "sheet": history_sheet,
+                    "unit": "ratio",
+                }
+            }
+        return None
 
     @staticmethod
     def _initial_soc(run_input: OnlineMpcRunInput) -> float:

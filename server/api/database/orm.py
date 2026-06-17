@@ -52,7 +52,14 @@ class Telemetry15Min(Base):
     battery_sample_count: Mapped[int] = mapped_column(Integer, default=0)
     quality_flag: Mapped[str] = mapped_column(String(64), default="ok")
     buy_price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    sell_price: Mapped[float | None] = mapped_column(Float, nullable=True)
     irradiance_w_m2: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # MPC results persisted after successful run
+    mpc_grid_power_kw_avg: Mapped[float | None] = mapped_column(Float, nullable=True)
+    mpc_battery_power_kw_avg: Mapped[float | None] = mapped_column(Float, nullable=True)
+    mpc_soc: Mapped[float | None] = mapped_column(Float, nullable=True)
+    mpc_load_kw: Mapped[float | None] = mapped_column(Float, nullable=True)
+    mpc_pv_kw: Mapped[float | None] = mapped_column(Float, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -197,3 +204,23 @@ class ControlApiAck(Base):
     status: Mapped[str | None] = mapped_column(String(32), nullable=True)
     message: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class MpcRunProgress(Base):
+    """Per‑step progress of an MPC run, written by the CLI runner."""
+
+    __tablename__ = "mpc_run_progress"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    run_id: Mapped[str] = mapped_column(String(128), index=True)
+    step: Mapped[int] = mapped_column(Integer)
+    total_steps: Mapped[int] = mapped_column(Integer)
+    soc: Mapped[float | None] = mapped_column(Float, nullable=True)
+    peak_kw: Mapped[float | None] = mapped_column(Float, nullable=True)
+    running_cost: Mapped[float | None] = mapped_column(Float, nullable=True)
+    battery_power_kw: Mapped[float | None] = mapped_column(Float, nullable=True)
+    grid_power_kw: Mapped[float | None] = mapped_column(Float, nullable=True)
+    load_kw: Mapped[float | None] = mapped_column(Float, nullable=True)
+    pv_kw: Mapped[float | None] = mapped_column(Float, nullable=True)
+    elapsed_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)

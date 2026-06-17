@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 
 
-def render_dashboard_page(default_plant_id: str = "aodelai") -> str:
+def render_dashboard_page(default_plant_id: str = "aolaide") -> str:
     plant_json = json.dumps(default_plant_id, ensure_ascii=False)
     return f"""<!doctype html>
 <html lang="zh-CN">

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
@@ -12,6 +13,21 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
+
+# ── MPC 全链路日志 ──
+LOG_DIR = Path(__file__).resolve().parent.parent.parent / "logs"
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+_mpc_log_handler = logging.FileHandler(LOG_DIR / "mpc_chain.log", encoding="utf-8")
+_mpc_log_handler.setFormatter(logging.Formatter(
+    "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+))
+for _name in ("api.services.mpc.runner", "api.services.mpc.orchestrator",
+              "api.services.mpc.health", "api.routes.mpc",
+              "api.services.aggregation"):
+    _l = logging.getLogger(_name)
+    _l.setLevel(logging.INFO)
+    _l.addHandler(_mpc_log_handler)
 
 from api.constants import (
     ALL_PLANTS,
@@ -38,6 +54,9 @@ from api.services.plant_config import load_plant_config, plant_config_to_mpc_cli
 from api.services.mpc.adapter import export_mpc_scenario_from_telemetry
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+import sys
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 
 def _resolve_plant_config_path(plant_config_path: str | Path | None) -> Path:
@@ -186,6 +205,7 @@ def create_app(
                 project_root=mpc_runner_project_root or PROJECT_ROOT,
             ),
             command_runner=mpc_command_runner,
+            session_factory=sf,
         )
     else:
         app.state.mpc_runner = mpc_runner

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { fetchDashboard, fetchDisplaySeries, fetchMpcStatus, importMpcRun, importRawData, runMpc, setMonthlyDemandRef, toApiTime } from "./api";
+import { clearData, fetchDashboard, fetchDisplaySeries, fetchMpcProgress, fetchMpcStatus, importRawData, runMpc, setMonthlyDemandRef, toApiTime } from "./api";
 import { displaySeriesToDashboardSeries } from "./displaySeries";
-import type { DashboardResponse, DashboardSeriesPoint, DisplaySeriesResponse, MpcHealthStatus, RunMpcResponse } from "./types";
+import type { DashboardResponse, DashboardSeriesPoint, DisplaySeriesResponse, ImportRawDataResponse, MpcHealthStatus, MpcProgress, RunMpcResponse } from "./types";
 import {
   buildDemandComparisonChartOption,
   buildRevenueComparisonChartOption,
@@ -16,7 +16,7 @@ import { formatChinaTime } from "./time";
 import "./styles.css";
 
 const DEFAULT_PLANT_ID = "hehong_huajin";
-const APP_FRONTEND_VERSION = "0.1.02";  // XX 部分，改前端代码时 +1
+const APP_FRONTEND_VERSION = "0.1.15";  // XX 部分，改前端代码时 +1
 const AUTO_REFRESH_MS = 60_000;
 
 const MONTH_OPTIONS = [
@@ -70,7 +70,9 @@ function estimateArbitrageRevenue(series: DashboardSeriesPoint[], key: "actual_b
     const batteryPower = point[key];
     if (batteryPower === null || batteryPower === undefined) continue;
     const price = point.buy_price ?? point.sell_price ?? 0.986;
-    total += batteryPower * price * 0.25;
+    // actual: 充电为正(需取反); mpc: solver输出放电为正(不变)
+    const sign = key === "actual_battery_power_kw" ? -1 : 1;
+    total += batteryPower * price * 0.25 * sign;
     hasValue = true;
   }
   return hasValue ? Math.round(total * 100) / 100 : null;
@@ -107,9 +109,10 @@ interface ChartFrameProps {
   iconClass: string;
   children: ReactNode;
   expandedChildren: ReactNode;
+  info?: string;
 }
 
-function ChartFrame({ title, iconClass, children, expandedChildren }: ChartFrameProps) {
+function ChartFrame({ title, iconClass, children, expandedChildren, info }: ChartFrameProps) {
   const [expanded, setExpanded] = useState(false);
 
   return (
@@ -118,6 +121,11 @@ function ChartFrame({ title, iconClass, children, expandedChildren }: ChartFrame
         <div className="chart-title">
           <span className={`flat-icon ${iconClass}`} aria-hidden="true" />
           <h2>{title}</h2>
+          {info && (
+            <span className="info-badge" aria-label={info} data-tooltip={info}>
+              !
+            </span>
+          )}
         </div>
         <button className="icon-button" type="button" onClick={() => setExpanded(true)} aria-label={`放大${title}`}>
           <span className="flat-icon icon-expand" aria-hidden="true" />
@@ -131,6 +139,11 @@ function ChartFrame({ title, iconClass, children, expandedChildren }: ChartFrame
               <div className="chart-title">
                 <span className={`flat-icon ${iconClass}`} aria-hidden="true" />
                 <h2>{title}</h2>
+                {info && (
+                  <span className="info-badge" aria-label={info} data-tooltip={info}>
+                    !
+                  </span>
+                )}
               </div>
               <button className="icon-button" type="button" onClick={() => setExpanded(false)} aria-label="关闭放大图表">
                 <span className="flat-icon icon-close" aria-hidden="true" />
@@ -188,18 +201,19 @@ export default function App() {
   const [targetSocOverride, setTargetSocOverride] = useState<number | null>(null);
   const [targetDemandOverride, setTargetDemandOverride] = useState<number | null>(null);
   const [optimizationTarget, setOptimizationTarget] = useState(OPTIMIZATION_TARGETS[0].value);
-  const [importing, setImporting] = useState(false);
-  const [importError, setImportError] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const [rawImporting, setRawImporting] = useState(false);
   const [rawImportError, setRawImportError] = useState<string | null>(null);
-  const [rawImportResult, setRawImportResult] = useState<Awaited<ReturnType<typeof importRawData>> | null>(null);
+  const [rawImportResult, setRawImportResult] = useState<ImportRawDataResponse | null>(null);
   const [rawImportStep, setRawImportStep] = useState("");
   const rawFileInputRef = useRef<HTMLInputElement>(null);
+  const [clearLoading, setClearLoading] = useState(false);
+  const [clearError, setClearError] = useState<string | null>(null);
+  const [clearResult, setClearResult] = useState<string | null>(null);
   const [mpcRunLoading, setMpcRunLoading] = useState(false);
   const [mpcRunError, setMpcRunError] = useState<string | null>(null);
   const [mpcRunResult, setMpcRunResult] = useState<RunMpcResponse | null>(null);
   const [mpcHealth, setMpcHealth] = useState<MpcHealthStatus | null>(null);
+  const [mpcProgress, setMpcProgress] = useState<MpcProgress | null>(null);
   const [plantInfo, setPlantInfo] = useState<{
     name: string; latitude: number; longitude: number;
     pv_capacity_kw: number; battery_power_kw: number;
@@ -254,24 +268,33 @@ export default function App() {
     };
   }, [plantId, optimizationTarget]);
 
-  const handleImportExcel = useCallback(async () => {
-    const input = fileInputRef.current;
-    if (!input?.files?.length) return;
-    const file = input.files[0];
-    setImporting(true);
-    setImportError(null);
-    try {
-      const result = await importMpcRun(plantId, optimizationTarget, file);
-      // 导入成功后自动跳转到该 run
-      window.history.replaceState(null, "", `?plant_id=${plantId}&run_id=${result.run_id}`);
-      window.location.reload();
-    } catch (err) {
-      setImportError(err instanceof Error ? err.message : "导入失败");
-    } finally {
-      setImporting(false);
-      if (input) input.value = "";
+  // Poll MPC progress when running (every 3 seconds)
+  useEffect(() => {
+    const runId = mpcHealth?.state === "running" ? mpcHealth.last_run_id : null;
+    if (!runId) {
+      setMpcProgress(null);
+      return;
     }
-  }, [plantId, optimizationTarget]);
+    let active = true;
+    const controller = new AbortController();
+
+    async function poll() {
+      try {
+        const result = await fetchMpcProgress(runId!, controller.signal);
+        if (active && "step" in result) setMpcProgress(result as MpcProgress);
+      } catch {
+        // silently ignore
+      }
+    }
+
+    poll();
+    const timer = setInterval(poll, 3000);
+    return () => {
+      active = false;
+      controller.abort();
+      clearInterval(timer);
+    };
+  }, [mpcHealth?.state, mpcHealth?.last_run_id]);
 
   const handleImportRawData = useCallback(async () => {
     const input = rawFileInputRef.current;
@@ -314,6 +337,25 @@ export default function App() {
     } finally {
       setRawImporting(false);
       if (input) input.value = "";
+    }
+  }, []);
+
+  const handleClearData = useCallback(async () => {
+    if (!window.confirm("确认清空数据库？\n\n此操作将删除本项目导入和生成的 所有数据（原始电表、聚合数据、MPC 运行记录等），不可恢复。")) return;
+    setClearLoading(true);
+    setClearError(null);
+    setClearResult(null);
+    try {
+      const result = await clearData();
+      const parts = Object.entries(result.deleted)
+        .filter(([, c]) => c > 0)
+        .map(([t, c]) => `${t}: ${c} 行`);
+      setClearResult(parts.length > 0 ? `已清空 ${parts.join("，")}` : "数据库已为空");
+      setRefreshCount((v) => v + 1);
+    } catch (err) {
+      setClearError(err instanceof Error ? err.message : "清空失败");
+    } finally {
+      setClearLoading(false);
     }
   }, []);
 
@@ -468,7 +510,7 @@ export default function App() {
     .slice()
     .reverse()
     .find((point) => point.mpc_soc !== null || point.mpc_battery_power_kw !== null);
-  const targetSoc = targetSocOverride ?? latestMpcPoint?.mpc_soc ?? data?.current.soc;
+  const targetSoc = targetSocOverride ?? mpcProgress?.soc ?? latestMpcPoint?.mpc_soc ?? null;
   const targetDemand = targetDemandOverride ?? targetPeak;
   const factoryArbitrageRevenue = estimateArbitrageRevenue(data?.series || [], "actual_battery_power_kw");
   const mpcArbitrageRevenue = estimateArbitrageRevenue(data?.series || [], "mpc_battery_power_kw");
@@ -488,12 +530,82 @@ export default function App() {
     if (nextValue !== null) setTargetDemandOverride(nextValue);
   }
 
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
+
+  const handleExportCSV = useCallback(async () => {
+    setExporting(true);
+    setExportError(null);
+    try {
+      const startStr = toApiTime(rangeStart);
+      const endStr = toApiTime(rangeEnd);
+      let totalHours = 24;
+      if (startStr && endStr) {
+        const ms = new Date(endStr).getTime() - new Date(startStr).getTime();
+        totalHours = Math.max(24, Math.ceil(ms / 3600_000));
+      }
+      const fullData = await fetchDashboard(plantId, {
+        windowHours: totalHours,
+        runId: runId.trim() || undefined,
+        profile: isRealtimeMode ? optimizationTarget : undefined,
+        startTime: startStr,
+        endTime: endStr,
+      });
+      const pts = fullData.series;
+      if (!pts.length) {
+        setExportError("无数据可导出");
+        return;
+      }
+      const headers = [
+        "时间", "工厂电网功率(kW)", "MPC电网功率(kW)",
+        "工厂储能功率(kW)", "MPC储能功率(kW)",
+        "工厂SOC", "MPC SOC",
+        "工厂负荷(kW)", "MPC负荷(kW)",
+        "工厂光伏(kW)", "MPC光伏(kW)",
+        "净负荷(kW)", "购电价(元/kWh)",
+      ];
+      const rows = pts.map((p) =>
+        [
+          p.time,
+          p.actual_grid_power_kw ?? "",
+          p.mpc_grid_power_kw ?? "",
+          p.actual_battery_power_kw ?? "",
+          p.mpc_battery_power_kw ?? "",
+          p.actual_soc ?? "",
+          p.mpc_soc ?? "",
+          p.actual_load_kw ?? "",
+          p.mpc_load_kw ?? "",
+          p.actual_pv_kw ?? "",
+          p.mpc_pv_kw ?? "",
+          p.load_minus_pv_kw ?? "",
+          p.buy_price ?? "",
+        ].join(","),
+      );
+      const csv = "﻿" + [headers.join(","), ...rows].join("\n");
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${plantId}_${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setExportError(err instanceof Error ? err.message : "导出失败");
+    } finally {
+      setExporting(false);
+    }
+  }, [plantId, runId, rangeStart, rangeEnd, isRealtimeMode, optimizationTarget]);
+
   return (
     <main className="app-shell">
       <header className="topbar">
         <div className="topbar-time">
           <span>{TOPBAR_TIME_LABEL}</span>
           <strong>{latestTime}</strong>
+          <button type="button" className="export-btn" onClick={handleExportCSV} disabled={exporting} title="导出当前时间范围全部曲线数据为 CSV">
+            {exporting ? "导出中..." : "导出CSV"}
+          </button>
+          {exportError && <span className="import-error" style={{marginLeft:6}} title={exportError}>❌</span>}
         </div>
         <h1>则鸣AI+ems实时演示系统 <span style={{fontSize:12,fontWeight:400,color:"var(--muted)",marginLeft:8}}>V{APP_FRONTEND_VERSION}.{backendVersion}</span></h1>
         <label className="plant-picker"
@@ -577,14 +689,6 @@ export default function App() {
                   <h2>实时数据对比</h2>
                 </div>
                 <div className="main-panel-head-actions">
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept=".xlsx,.xls"
-                    style={{ display: "none" }}
-                    onChange={handleImportExcel}
-                    aria-label="导入 MPC 结果 Excel"
-                  />
                   <select
                     className="month-picker"
                     value={selectedMonth}
@@ -604,8 +708,8 @@ export default function App() {
                 <KpiCompareCard
                   title="累计收益"
                   iconClass="icon-yuan"
-                  factoryValue={formatYuan(0)}
-                  mpcValue={formatYuan(comparison?.cost_saving_yuan)}
+                  factoryValue={formatYuan(factoryArbitrageRevenue)}
+                  mpcValue={formatYuan(mpcArbitrageRevenue)}
                 />
                 <KpiCompareCard
                   title="最大需量"
@@ -630,6 +734,7 @@ export default function App() {
               <ChartFrame
                 title="净负荷 / 电网功率 / 储能功率 / SOC"
                 iconClass="icon-trend"
+                info="虚线为则鸣策略，实线为工厂策略"
                 expandedChildren={<PowerChart series={realtimeSeries} />}
               >
                 <PowerChart series={realtimeSeries} />
@@ -643,8 +748,25 @@ export default function App() {
               <strong className="mpc-status-text">
                 {mpcHealth ? mpcHealth.label : mpcStatusText}
               </strong>
-              {mpcHealth?.continuous_from_month_start === false && mpcHealth.telemetry_windows > 0 && (
-                <small className="mpc-status-hint">本月数据非连续</small>
+              {mpcHealth && (
+                <small className="mpc-status-detail" style={{textAlign:"center",display:"block",marginTop:4,color:"var(--muted)",fontSize:11}}>
+                  {PLANT_OPTIONS.find(p => p.value === plantId)?.label ?? plantId}
+                  {" · "}
+                  {OPTIMIZATION_TARGETS.find(t => t.value === optimizationTarget)?.label ?? optimizationTarget}
+                  {mpcHealth.last_run_finished_at && !mpcProgress && (
+                    <>{" · "}{new Date(mpcHealth.last_run_finished_at).toLocaleTimeString("zh-CN", {hour:"2-digit",minute:"2-digit"})}</>
+                  )}
+                </small>
+              )}
+              {mpcProgress && mpcProgress.step > 0 && (
+                <small className="mpc-status-detail" style={{textAlign:"center",display:"block",marginTop:2,color:"var(--blue)",fontSize:11}}>
+                  步 {mpcProgress.step}/{mpcProgress.total_steps}
+                  {" · "}SOC {mpcProgress.soc != null ? (mpcProgress.soc * 100).toFixed(1) : "--"}%
+                  {" · "}{Math.round(mpcProgress.elapsed_seconds ?? 0)}秒
+                </small>
+              )}
+              {mpcHealth?.data_timed_out && (
+                <small className="mpc-status-hint gap-warn">数据获取超时 {mpcHealth.minutes_since_latest_data != null ? `${Math.round(mpcHealth.minutes_since_latest_data)} 分钟` : ""}</small>
               )}
               {mpcHealth?.has_gap && (
                 <small className="mpc-status-hint gap-warn">缺口 {mpcHealth.max_gap_minutes} 分钟</small>
@@ -669,8 +791,17 @@ export default function App() {
               </button>
             </div>
             <div className="rail-card editable-card">
-              <span>{CONTROL_RAIL_CARD_TITLES[2]}</span>
-              <strong>{formatKw(targetDemand)}</strong>
+              <span>需量管理</span>
+              <div className="demand-rows">
+                <div className="demand-row">
+                  <span className="demand-label">MPC 最大需量</span>
+                  <strong>{formatKw(comparison?.mpc_peak_kw)}</strong>
+                </div>
+                <div className="demand-row">
+                  <span className="demand-label">目标需量</span>
+                  <strong>{formatKw(targetDemand)}</strong>
+                </div>
+              </div>
               <button type="button" className="mini-action" onClick={editTargetDemand}>
                 修改
               </button>
@@ -690,15 +821,25 @@ export default function App() {
                 ))}
               </div>
             </div>
-            <div className="rail-card data-import-card">
-              <span>{CONTROL_RAIL_CARD_TITLES[6]}</span>
+            <div className="rail-card data-import-card" style={{ position: "relative" }}>
+              <span>{CONTROL_RAIL_CARD_TITLES[5]}</span>
+              <button
+                type="button"
+                className="mini-action"
+                onClick={handleClearData}
+                disabled={clearLoading}
+                title="清空本项目导入和生成的所有数据"
+                style={{ color: "rgba(244,108,108,0.55)" }}
+              >
+                {clearLoading ? "⏳" : "清空"}
+              </button>
               <input
                 ref={rawFileInputRef}
                 type="file"
                 accept=".xlsx,.xls,.numbers"
                 style={{ display: "none" }}
                 onChange={handleImportRawData}
-                aria-label="导入原始电表数据"
+                aria-label="导入电站历史数据"
               />
               <button
                 type="button"
@@ -707,7 +848,7 @@ export default function App() {
                 disabled={rawImporting}
                 title="上传电表 Excel/numbers（时间/电网功率/储能功率/SOC/实时电价），Sheet 名自动识别电站"
               >
-                {rawImporting ? "⏳ 导入中..." : "上传原始电表"}
+                {rawImporting ? "⏳ 导入中..." : "导入电站历史数据"}
               </button>
               {rawImportError && <span className="import-error" title={rawImportError}>❌ 导入失败</span>}
               {rawImportResult && !rawImporting && (
@@ -715,19 +856,12 @@ export default function App() {
                   ✅ {rawImportResult.plant_id} {rawImportResult.records_count}条 {rawImportResult.total_sec}秒
                 </span>
               )}
-            </div>
-            <div className="rail-card data-import-card">
-              <span>{CONTROL_RAIL_CARD_TITLES[5]}</span>
-              <button
-                type="button"
-                className="import-action"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={importing}
-                title={`导入线下 MPC 结果（${optimizationTarget}）`}
-              >
-                {importing ? "导入中..." : "导入电站历史数据"}
-              </button>
-              {importError && <span className="import-error" title={importError}>导入失败</span>}
+              {clearError && <span className="import-error" title={clearError}>❌ {clearError}</span>}
+              {clearResult && !clearLoading && (
+                <span className="import-success" style={{ cursor: "pointer" }} onClick={() => setClearResult(null)} title="点击关闭">
+                  ✅ {clearResult}
+                </span>
+              )}
             </div>
           </aside>
         </section>
@@ -745,13 +879,21 @@ export default function App() {
             <div style={{ padding: "12px 0", lineHeight: 1.8, fontSize: 14 }}>
               <table style={{ width: "100%", borderSpacing: "0 6px" }}>
                 <tbody>
-                  <tr><td style={{ color: "var(--muted)" }}>电站</td><td><strong>{rawImportResult.plant_id}</strong></td></tr>
-                  <tr><td style={{ color: "var(--muted)" }}>Sheet</td><td>{rawImportResult.sheet_name}</td></tr>
                   <tr><td style={{ color: "var(--muted)" }}>文件大小</td><td>{rawImportResult.file_size_kb} KB</td></tr>
+                  <tr><td style={{ color: "var(--muted)" }}>Sheet 数量</td><td><strong>{rawImportResult.sheet_count} 个</strong></td></tr>
+                  {rawImportResult.sheets?.map((sh, i) => (
+                    <tr key={i}>
+                      <td style={{ color: "var(--muted)" }}>Sheet {i + 1}</td>
+                      <td>
+                        <strong style={{ color: "var(--blue)" }}>{sh.sheet_name}</strong>
+                        {" → "}{sh.plant_id}，{sh.records} 条
+                        {sh.skipped > 0 && <span style={{ color: "var(--muted)" }}>（跳过 {sh.skipped}）</span>}
+                      </td>
+                    </tr>
+                  ))}
                   <tr><td style={{ color: "var(--muted)" }}>总行数</td><td>{rawImportResult.total_rows} 行（跳过 {rawImportResult.skipped_rows} 空行）</td></tr>
                   <tr><td style={{ color: "var(--muted)" }}>写入记录</td><td><strong style={{ color: "var(--green)" }}>{rawImportResult.records_count} 条</strong></td></tr>
                   <tr><td style={{ color: "var(--muted)" }}>解析耗时</td><td>{rawImportResult.parse_sec} 秒</td></tr>
-                  <tr><td style={{ color: "var(--muted)" }}>写入耗时</td><td>{rawImportResult.write_sec} 秒</td></tr>
                   {rawImportResult.aggregated_windows != null && (
                     <tr><td style={{ color: "var(--muted)" }}>聚合窗口</td><td><strong style={{ color: "var(--green)" }}>{rawImportResult.aggregated_windows} 个</strong>（15分钟）</td></tr>
                   )}

@@ -160,6 +160,7 @@ def _series_payload(rows: list[Telemetry15Min], curve_by_time: dict) -> list[dic
     series = []
     for row in rows:
         point = curve_by_time.get(row.start_time)
+        # Prefer MPC data from telemetry_15min (persisted after run), fall back to curve points
         series.append(
             {
                 "time": row.end_time.isoformat(),
@@ -169,13 +170,13 @@ def _series_payload(rows: list[Telemetry15Min], curve_by_time: dict) -> list[dic
                 "actual_load_kw": None if point is None else point.actual_load_kw,
                 "actual_pv_kw": None if point is None else point.actual_pv_kw,
                 "load_minus_pv_kw": row.load_minus_pv_kw_avg,
-                "mpc_grid_power_kw": None if point is None else point.mpc_grid_power_kw,
-                "mpc_battery_power_kw": None if point is None else point.mpc_battery_power_kw,
-                "mpc_soc": None if point is None else point.mpc_soc,
-                "mpc_load_kw": None if point is None else point.mpc_load_kw,
-                "mpc_pv_kw": None if point is None else point.mpc_pv_kw,
-                "buy_price": None if point is None else point.buy_price,
-                "sell_price": None if point is None else point.sell_price,
+                "mpc_grid_power_kw": row.mpc_grid_power_kw_avg if row.mpc_grid_power_kw_avg is not None else (None if point is None else point.mpc_grid_power_kw),
+                "mpc_battery_power_kw": row.mpc_battery_power_kw_avg if row.mpc_battery_power_kw_avg is not None else (None if point is None else point.mpc_battery_power_kw),
+                "mpc_soc": row.mpc_soc if row.mpc_soc is not None else (None if point is None else point.mpc_soc),
+                "mpc_load_kw": row.mpc_load_kw if row.mpc_load_kw is not None else (None if point is None else point.mpc_load_kw),
+                "mpc_pv_kw": row.mpc_pv_kw if row.mpc_pv_kw is not None else (None if point is None else point.mpc_pv_kw),
+                "buy_price": row.buy_price if row.buy_price is not None else (None if point is None else point.buy_price),
+                "sell_price": row.sell_price if row.sell_price is not None else (None if point is None else point.sell_price),
                 "quality_flag": row.quality_flag,
             }
         )
@@ -354,8 +355,8 @@ def build_dashboard_payload(
             end_time=end_time,
         )
 
-    if window_hours < 1 or window_hours > 168:
-        raise HTTPException(status_code=422, detail="window_hours must be between 1 and 168")
+    if window_hours < 1 or window_hours > 8760:
+        raise HTTPException(status_code=422, detail="window_hours must be between 1 and 8760")
 
     latest = _latest_telemetry(session, plant_id)
     comparison = _latest_comparison(session, plant_id, profile=profile)

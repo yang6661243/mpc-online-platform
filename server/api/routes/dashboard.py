@@ -39,7 +39,7 @@ def dashboard_page(request: Request, plant_id: str = "hehong_huajin"):
 @router.get("/api/v1/plants/{plant_id}/info")
 def plant_info(plant_id: str):
     plant_id = normalize_plant_id(plant_id)
-    config_name = "hehong_huajin" if plant_id == "hehong_huajin" else "aodelai"
+    config_name = "hehong_huajin" if plant_id == "hehong_huajin" else "aodelai"  # 配置文件仍是 aodelai.yaml
     config_path = PROJECT_ROOT / "mpc" / "configs" / "plants" / f"{config_name}.yaml"
     if not config_path.exists():
         raise HTTPException(status_code=404, detail=f"plant config not found: {plant_id}")
