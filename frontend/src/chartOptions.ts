@@ -9,7 +9,14 @@ interface AxisOption {
   scale?: boolean;
   min?: number;
   max?: number;
+  axisLabel?: Record<string, unknown>;
+  axisLine?: Record<string, unknown>;
+  axisTick?: Record<string, unknown>;
+  nameTextStyle?: Record<string, unknown>;
+  splitLine?: Record<string, unknown>;
 }
+
+type SeriesDataValue = number | null | { value: number; itemStyle?: Record<string, unknown> };
 
 interface SeriesOption {
   name: string;
@@ -18,14 +25,14 @@ interface SeriesOption {
   smooth?: boolean;
   yAxisIndex?: number;
   xAxisIndex?: number;
-  data?: Array<number | null>;
+  data?: SeriesDataValue[];
   datasetIndex?: number;
   encode?: Record<string, string>;
   stack?: string;
   barWidth?: string | number;
   barGap?: string;
   label?: Record<string, unknown>;
-  lineStyle?: Record<string, string | number>;
+  lineStyle?: Record<string, string | number | undefined>;
   itemStyle?: Record<string, unknown>;
   markLine?: Record<string, unknown>;
 }
@@ -151,7 +158,7 @@ export function buildPowerChartOption(series: DashboardSeriesPoint[]): Dashboard
     textStyle: darkChartText,
     tooltip: {
       trigger: "axis",
-      formatter: (params) => {
+      formatter: (params: Array<{ dataIndex: number; seriesName: string; data: number | null }>) => {
         const pt = series[params[0]?.dataIndex];
         const timeStr = pt ? shortTime(pt.time) : "";
         const header = timeStr
@@ -160,7 +167,7 @@ export function buildPowerChartOption(series: DashboardSeriesPoint[]): Dashboard
         return (
           header +
           params
-            .map((param) => {
+            .map((param: { dataIndex: number; seriesName: string; data: number | null }) => {
               const point = series[param.dataIndex];
               const label = point ? qualityLabel(point, param.seriesName) : "";
               const suffix = label ? ` (${label})` : "";
