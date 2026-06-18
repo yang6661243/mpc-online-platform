@@ -237,6 +237,7 @@ if dry "docker buildx build --push"; then
   info "跳过 Docker 构建与推送"
 else
   docker buildx build \
+     -f server/deploy/Dockerfile \
     --platform linux/amd64 \
     --tag "${FULL_IMAGE}" \
     --tag "${IMAGE_NAME}:latest" \
