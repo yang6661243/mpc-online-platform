@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { buildDashboardUrl, buildDisplaySeriesUrl, buildMonthlyDemandRefUrl, buildPlantInfoUrl, buildRunMpcRequestUrl, toApiTime } from "./api";
+import { buildDashboardUrl, buildDisplaySeriesUrl, buildImportRawDataUrl, buildMonthlyDemandRefUrl, buildPlantInfoUrl, buildRunMpcRequestUrl, toApiTime } from "./api";
 
 describe("dashboard API", () => {
   test("builds a dashboard URL with run id and explicit time range", () => {
@@ -41,5 +41,9 @@ describe("dashboard API", () => {
     expect(url).toBe(
       "/api/v1/plants/hehong_huajin/display-series?window_hours=2&reference_time=2026-06-16T10%3A04%3A00",
     );
+  });
+
+  test("raw data import aggregates without waiting for irradiance by default", () => {
+    expect(buildImportRawDataUrl()).toBe("/api/v1/plants/import-raw-data?auto_aggregate=true&include_irradiance=false");
   });
 });

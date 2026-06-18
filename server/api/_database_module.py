@@ -10,7 +10,8 @@ from sqlalchemy.pool import StaticPool
 from api.database.orm import Base
 
 
-DEFAULT_DATABASE_URL = "sqlite:///data/mpc_online.db"
+DEFAULT_DATABASE_PATH = Path(__file__).resolve().parents[2] / "data" / "mpc_online.db"
+DEFAULT_DATABASE_URL = f"sqlite:///{DEFAULT_DATABASE_PATH}"
 STRATEGY_CURVE_OPTIONAL_COLUMNS = {
     "actual_load_kw": "FLOAT",
     "actual_pv_kw": "FLOAT",
@@ -25,6 +26,10 @@ TELEMETRY_15MIN_OPTIONAL_COLUMNS = {
     "mpc_soc": "FLOAT",
     "mpc_load_kw": "FLOAT",
     "mpc_pv_kw": "FLOAT",
+}
+
+MPC_RUN_PROGRESS_OPTIONAL_COLUMNS = {
+    "arbitrage": "FLOAT",
 }
 
 
@@ -95,6 +100,21 @@ def ensure_runtime_schema(engine) -> None:
                 for column_name, column_type in missing.items():
                     connection.execute(text(
                         f"ALTER TABLE telemetry_15min ADD COLUMN {column_name} {column_type}"
+                    ))
+
+    # mpc_run_progress optional columns (arbitrage)
+    if "mpc_run_progress" in inspector.get_table_names():
+        existing = {column["name"] for column in inspector.get_columns("mpc_run_progress")}
+        missing = {
+            column_name: column_type
+            for column_name, column_type in MPC_RUN_PROGRESS_OPTIONAL_COLUMNS.items()
+            if column_name not in existing
+        }
+        if missing:
+            with engine.begin() as connection:
+                for column_name, column_type in missing.items():
+                    connection.execute(text(
+                        f"ALTER TABLE mpc_run_progress ADD COLUMN {column_name} {column_type}"
                     ))
 
     tables = inspector.get_table_names()

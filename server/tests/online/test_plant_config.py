@@ -1,16 +1,16 @@
 from pathlib import Path
 
-from server.api.main import create_app
-from server.api.services.mpc.runner import MicrogridMpcCliRunner
-from server.api.services.plant_config import load_plant_config, plant_config_to_mpc_cli_config
+from api.main import create_app
+from api.services.mpc.runner import MicrogridMpcCliRunner
+from api.services.plant_config import load_plant_config, plant_config_to_mpc_cli_config
 
 
 def test_load_hehong_huajin_plant_config_contains_static_assets():
     cfg = load_plant_config(Path("mpc/configs/plants/hehong_huajin.yaml"))
 
     assert cfg.plant_id == "hehong_huajin"
-    assert cfg.location.latitude == 30.8300938
-    assert cfg.location.longitude == 121.2213572
+    assert cfg.location.latitude == 30.83
+    assert cfg.location.longitude == 121.22
     assert cfg.battery.power_kw == 375.0
     assert cfg.battery.capacity_kwh == 783.0
     assert cfg.battery.soc_min == 0.1

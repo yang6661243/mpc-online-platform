@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { clearData, fetchDashboard, fetchDisplaySeries, fetchMonthlyDemandRef, fetchMpcProgress, fetchMpcStatus, importRawData, runMpc, setMonthlyDemandRef, toApiTime } from "./api";
+import { clearData, fetchDashboard, fetchDisplaySeries, fetchMonthlyDemandRef, fetchMpcProgress, fetchMpcProgressHistory, fetchMpcStatus, importRawData, runMpc, setMonthlyDemandRef, toApiTime } from "./api";
 import { displaySeriesToDashboardSeries } from "./displaySeries";
 import type { DashboardResponse, DashboardSeriesPoint, DisplaySeriesResponse, ImportRawDataResponse, MpcHealthStatus, MpcProgress, RunMpcResponse } from "./types";
 import {
@@ -214,6 +214,7 @@ export default function App() {
   const [mpcRunResult, setMpcRunResult] = useState<RunMpcResponse | null>(null);
   const [mpcHealth, setMpcHealth] = useState<MpcHealthStatus | null>(null);
   const [mpcProgress, setMpcProgress] = useState<MpcProgress | null>(null);
+  const [mpcProgressHistory, setMpcProgressHistory] = useState<MpcProgress[]>([]);
   const [plantInfo, setPlantInfo] = useState<{
     name: string; latitude: number; longitude: number;
     pv_capacity_kw: number; battery_power_kw: number;
@@ -308,6 +309,62 @@ export default function App() {
       clearInterval(timer);
     };
   }, [mpcHealth?.state, mpcHealth?.last_run_id]);
+
+  // Poll MPC progress history for real-time curves (every 3 seconds when running)
+  useEffect(() => {
+    const isRunning = mpcHealth?.state === "running" || mpcHealth?.state === "running_fuzzy";
+    const runId = isRunning ? mpcHealth.last_run_id : null;
+    if (!runId) {
+      setMpcProgressHistory([]);
+      return;
+    }
+    let active = true;
+    const controller = new AbortController();
+
+    async function poll() {
+      try {
+        const result = await fetchMpcProgressHistory(runId!, 1, controller.signal);
+        if (active && result.progress) {
+          setMpcProgressHistory(result.progress);
+        }
+      } catch {
+        // silently ignore
+      }
+    }
+
+    poll();
+    const timer = setInterval(poll, 3000);
+    return () => {
+      active = false;
+      controller.abort();
+      clearInterval(timer);
+    };
+  }, [mpcHealth?.state, mpcHealth?.last_run_id]);
+
+  // Compute real-time metrics from progress history
+  const realtimeBatteryCycles = useMemo(() => {
+    if (!mpcProgressHistory.length) return null;
+    let previous: number | null = null;
+    let movement = 0;
+    for (const p of mpcProgressHistory) {
+      if (p.soc === null || p.soc === undefined) continue;
+      const socPercent = p.soc <= 1 ? p.soc * 100 : p.soc;
+      if (previous !== null) movement += Math.abs(socPercent - previous);
+      previous = socPercent;
+    }
+    return movement > 0 ? Math.round((movement / 200) * 100) / 100 : 0;
+  }, [mpcProgressHistory]);
+
+  const realtimeArbitrageRevenue = useMemo(() => {
+    if (!mpcProgressHistory.length) return null;
+    let total = 0;
+    for (const p of mpcProgressHistory) {
+      if (p.arbitrage !== null && p.arbitrage !== undefined) {
+        total += p.arbitrage;
+      }
+    }
+    return Math.round(total * 100) / 100;
+  }, [mpcProgressHistory]);
 
   const handleImportRawData = useCallback(async () => {
     const input = rawFileInputRef.current;
@@ -439,7 +496,7 @@ export default function App() {
       {
         windowHours,
         runId: runId.trim() || undefined,
-        profile: isRealtimeMode ? optimizationTarget : undefined,
+        profile: optimizationTarget,
         startTime: toApiTime(rangeStart),
         endTime: toApiTime(rangeEnd),
       },
@@ -490,7 +547,7 @@ export default function App() {
       })
       .finally(() => setLoading(false));
     return () => controller.abort();
-  }, [plantId, runId, windowHours, rangeStart, rangeEnd, refreshCount, isRealtimeMode]);
+  }, [plantId, runId, windowHours, rangeStart, rangeEnd, refreshCount, isRealtimeMode, optimizationTarget]);
 
   useEffect(() => {
     if (!isRealtimeMode) return;
@@ -506,6 +563,7 @@ export default function App() {
     }
     return data?.series || [];
   }, [data?.series, displayData, isRealtimeMode]);
+
 
   const status = useMemo(() => (data ? dashboardStatus(data) : null), [data]);
   const comparison = data?.comparison;
@@ -526,10 +584,10 @@ export default function App() {
     .find((point) => point.mpc_soc !== null || point.mpc_battery_power_kw !== null);
   const targetSoc = targetSocOverride ?? mpcProgress?.soc ?? latestMpcPoint?.mpc_soc ?? null;
   const targetDemand = targetDemandOverride ?? targetPeak;
-  const factoryArbitrageRevenue = estimateArbitrageRevenue(data?.series || [], "actual_battery_power_kw");
-  const mpcArbitrageRevenue = estimateArbitrageRevenue(data?.series || [], "mpc_battery_power_kw");
-  const factoryBatteryCycles = estimateBatteryCycles(data?.series || [], "actual_soc");
-  const mpcBatteryCycles = estimateBatteryCycles(data?.series || [], "mpc_soc");
+  const factoryArbitrageRevenue = estimateArbitrageRevenue(realtimeSeries, "actual_battery_power_kw");
+  const mpcArbitrageRevenue = estimateArbitrageRevenue(realtimeSeries, "mpc_battery_power_kw");
+  const factoryBatteryCycles = estimateBatteryCycles(realtimeSeries, "actual_soc");
+  const mpcBatteryCycles = estimateBatteryCycles(realtimeSeries, "mpc_soc");
   const revenueComparisonOption = buildRevenueComparisonChartOption(0, comparison?.cost_saving_yuan);
   const demandComparisonOption = buildDemandComparisonChartOption(comparison?.actual_peak_kw, comparison?.mpc_peak_kw);
   const mpcStatusText = loading ? "运行中" : error ? "异常" : status?.label || "待运行";
@@ -568,7 +626,7 @@ export default function App() {
       const fullData = await fetchDashboard(plantId, {
         windowHours: totalHours,
         runId: runId.trim() || undefined,
-        profile: isRealtimeMode ? optimizationTarget : undefined,
+        profile: optimizationTarget,
         startTime: startStr,
         endTime: endStr,
       });
@@ -686,9 +744,9 @@ export default function App() {
             <ChartFrame
               title={LEFT_CHART_TITLES[1]}
               iconClass="icon-trend"
-              expandedChildren={<RevenueChart series={data?.series || []} />}
+              expandedChildren={<RevenueChart series={realtimeSeries} />}
             >
-              <RevenueChart series={data?.series || []} />
+              <RevenueChart series={realtimeSeries} />
             </ChartFrame>
 
             <ChartFrame
@@ -780,13 +838,22 @@ export default function App() {
                 </small>
               )}
               {(mpcHealth?.state === "running" || mpcHealth?.state === "running_fuzzy") && (
-                <small className="mpc-status-detail" style={{textAlign:"center",display:"block",marginTop:2,color:"var(--cyan)",fontSize:11}}>
-                  {mpcProgress && mpcProgress.step > 0 ? (
-                    <>步 {mpcProgress.step}/{mpcProgress.total_steps} · SOC {((mpcProgress.soc ?? 0) * 100).toFixed(1)}% · {Math.round(mpcProgress.elapsed_seconds ?? 0)}秒</>
-                  ) : (
-                    <>⏳ 计算进行中...</>
+                <>
+                  <small className="mpc-status-detail" style={{textAlign:"center",display:"block",marginTop:2,color:"var(--cyan)",fontSize:11}}>
+                    {mpcProgress && mpcProgress.step > 0 ? (
+                      <>步 {mpcProgress.step}/{mpcProgress.total_steps} · SOC {((mpcProgress.soc ?? 0) * 100).toFixed(1)}% · {Math.round(mpcProgress.elapsed_seconds ?? 0)}秒</>
+                    ) : (
+                      <>⏳ 计算进行中...</>
+                    )}
+                  </small>
+                  {(realtimeBatteryCycles !== null || realtimeArbitrageRevenue !== null) && (
+                    <small className="mpc-status-detail" style={{textAlign:"center",display:"block",marginTop:2,color:"var(--muted)",fontSize:11}}>
+                      循环 {realtimeBatteryCycles !== null ? realtimeBatteryCycles.toFixed(2) : "--"} 次
+                      {" · "}
+                      套利 {realtimeArbitrageRevenue !== null ? `${realtimeArbitrageRevenue.toFixed(2)} 元` : "--"}
+                    </small>
                   )}
-                </small>
+                </>
               )}
               {mpcHealth?.data_timed_out && (
                 <small className="mpc-status-hint gap-warn">数据获取超时 {mpcHealth.minutes_since_latest_data != null ? `${Math.round(mpcHealth.minutes_since_latest_data)} 分钟` : ""}</small>

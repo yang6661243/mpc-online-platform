@@ -163,5 +163,12 @@ export interface MpcProgress {
   grid_power_kw: number | null;
   load_kw: number | null;
   pv_kw: number | null;
+  arbitrage: number | null;
   elapsed_seconds: number | null;
+}
+
+export interface MpcProgressHistory {
+  run_id: string;
+  status?: string;
+  progress: MpcProgress[];
 }

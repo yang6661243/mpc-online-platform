@@ -33,7 +33,7 @@ def ingest_telemetry_records(
     plant_id: str,
     records: Iterable[Mapping],
 ) -> int:
-    """插入或更新原始电表数据到 raw_telemetry。
+    """插入或更新原始电表数据到 raw_telemetry。批量 upsert，单次 SELECT + 批量写入。
 
     每条 record 至少需要 "time"。可选字段：
     - grid_power_kw（电网功率，kW）
@@ -45,16 +45,10 @@ def ingest_telemetry_records(
     - 不存在则插入
     - 已存在则只更新本次传入的字段（其他字段保留原值）
     """
-    count = 0
+    # ── 1. 预处理所有记录为 (time, updates) 列表 ──
+    parsed: list[tuple[datetime, dict[str, object]]] = []
     for record in records:
         ts = parse_timestamp(record["time"])
-        existing = session.scalar(
-            select(RawTelemetry).where(
-                RawTelemetry.plant_id == plant_id,
-                RawTelemetry.time == ts,
-            )
-        )
-
         updates: dict[str, object] = {}
         if "grid_power_kw" in record and record["grid_power_kw"] is not None:
             updates["grid_power_kw"] = _as_finite_float(record["grid_power_kw"], "grid_power_kw")
@@ -66,11 +60,28 @@ def ingest_telemetry_records(
             updates["buy_price"] = _as_finite_float(record["buy_price"], "buy_price")
         if "source" in record:
             updates["source"] = str(record["source"])
-
         if not updates:
-            continue  # 没有可写字段，跳过
+            continue
+        parsed.append((ts, updates))
 
-        if existing:
+    if not parsed:
+        return 0
+
+    # ── 2. 一次性查出所有已存在的记录（O(1) 查询替代 N 次 SELECT）──
+    all_times = [ts for ts, _ in parsed]
+    existing_rows = session.scalars(
+        select(RawTelemetry).where(
+            RawTelemetry.plant_id == plant_id,
+            RawTelemetry.time.in_(all_times),
+        )
+    ).all()
+    existing_map: dict[datetime, RawTelemetry] = {row.time: row for row in existing_rows}
+
+    # ── 3. 批量 upsert ──
+    count = 0
+    for ts, updates in parsed:
+        existing = existing_map.get(ts)
+        if existing is not None:
             for key, value in updates.items():
                 setattr(existing, key, value)
         else:

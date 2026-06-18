@@ -217,3 +217,29 @@ def test_run_endpoint_uses_default_cli_runner_when_no_runner_is_injected(tmp_pat
     assert response.status_code == 200
     assert response.json()["comparison"]["mpc_peak_kw"] == 410.0
     assert len(commands) == 1
+
+
+def test_create_app_marks_interrupted_running_runs_failed():
+    session = create_sqlite_memory_session()
+    run = MpcRun(
+        run_id="mpc_interrupted",
+        plant_id="hehong_huajin",
+        profile="demand100",
+        status="running",
+        started_at=parse_timestamp("2026-06-01T00:00:00"),
+    )
+    session.add(run)
+    session.commit()
+
+    create_app(
+        session_factory=lambda: session,
+        enable_default_mpc_runner=False,
+        health_checker_plants=[],
+        health_checker_profiles=[],
+    )
+
+    updated = session.scalar(select(MpcRun).where(MpcRun.run_id == "mpc_interrupted"))
+    assert updated is not None
+    assert updated.status == "failed"
+    assert updated.finished_at is not None
+    assert "interrupted" in (updated.error_message or "")

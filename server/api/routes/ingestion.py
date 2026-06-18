@@ -221,6 +221,7 @@ async def import_raw_data(
     file: UploadFile = File(...),
     plant_id: str | None = Query(default=None, description="电站标识，留空则从 Sheet 名自动识别"),
     auto_aggregate: bool = Query(default=False, description="导入后自动触发 15 分钟聚合（默认关闭，由 MPC 启动时驱动）"),
+    include_irradiance: bool = Query(default=False, description="聚合后是否同步拉取辐照度；默认关闭，避免上传接口等待外部网络"),
     session: Session = Depends(get_session),
 ):
     """导入原始电表数据（.xlsx/.xls/.numbers）。
@@ -351,24 +352,27 @@ async def import_raw_data(
                 agg_total += len(agg_rows)
                 _log(f"  聚合完成: {len(agg_rows)} 个15分钟窗口")
 
-                try:
-                    plant_cfg = _get_plant_coords(pid)
-                    if plant_cfg:
-                        _log(f"步骤5: 获取辐照度... 电站={pid} "
-                             f"(lat={plant_cfg['lat']}, lng={plant_cfg['lng']})")
-                        irrad_updated = fetch_and_store_irradiance(
-                            session, plant_id=pid,
-                            start_time=agg_rows[0].start_time,
-                            end_time=agg_rows[-1].end_time,
-                            latitude=plant_cfg["lat"],
-                            longitude=plant_cfg["lng"],
-                        )
-                        irrad_total += irrad_updated
-                        _log(f"  辐照度完成: {irrad_updated} 窗口已回填")
-                    else:
-                        _log(f"  跳过辐照度: 电站={pid} 无光伏")
-                except Exception as exc:
-                    _log(f"  辐照度获取失败(不影响主流程): {exc}")
+                if include_irradiance:
+                    try:
+                        plant_cfg = _get_plant_coords(pid)
+                        if plant_cfg:
+                            _log(f"步骤5: 获取辐照度... 电站={pid} "
+                                 f"(lat={plant_cfg['lat']}, lng={plant_cfg['lng']})")
+                            irrad_updated = fetch_and_store_irradiance(
+                                session, plant_id=pid,
+                                start_time=agg_rows[0].start_time,
+                                end_time=agg_rows[-1].end_time,
+                                latitude=plant_cfg["lat"],
+                                longitude=plant_cfg["lng"],
+                            )
+                            irrad_total += irrad_updated
+                            _log(f"  辐照度完成: {irrad_updated} 窗口已回填")
+                        else:
+                            _log(f"  跳过辐照度: 电站={pid} 无光伏")
+                    except Exception as exc:
+                        _log(f"  辐照度获取失败(不影响主流程): {exc}")
+                else:
+                    _log(f"  跳过辐照度: include_irradiance=false")
             except ValueError as exc:
                 _log(f"  聚合失败: {exc}")
 

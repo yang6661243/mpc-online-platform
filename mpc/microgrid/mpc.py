@@ -689,6 +689,8 @@ def main():
                 f"  step {t + 1}/{run_steps} "
                 f"day={(t + 1) / 96:.2f}/{run_steps / 96:.0f}: "
                 f"SOC={soc:.3f} peak={peak_sofar:.1f}kW cost={running_cost:.0f} "
+                f"bat={bp:.1f} grid={gi:.1f} load={float(load_kw_full[abs_t]):.1f} "
+                f"pv={float(pv_full[abs_t]):.1f} arb={arbitrage:.3f} "
                 f"elapsed={elapsed_now:.0f}s",
                 flush=True,
             )

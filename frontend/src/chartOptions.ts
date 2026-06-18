@@ -76,11 +76,11 @@ function qualityLabel(point: DashboardSeriesPoint, seriesName: string): string {
   const quality = point.display_quality;
   if (!quality) return "";
   const field =
-    seriesName === "电网功率"
+    seriesName.includes("电网功率")
       ? quality.grid_power_kw
-      : seriesName === "储能功率"
+      : seriesName.includes("储能功率")
         ? quality.battery_power_kw
-        : seriesName === "SOC"
+        : seriesName.includes("SOC")
           ? quality.soc
           : "";
   if (field === "observed") return "真实";
@@ -109,14 +109,28 @@ export function buildPowerChartOption(series: DashboardSeriesPoint[]): Dashboard
   const legendData: string[] = [];
   const selected: Record<string, boolean> = {};
 
-  function addPair(label: string, factoryData: Array<number | null>, mpcData: Array<number | null>, options: { yAxisIndex?: number; defaultVisible?: boolean; factoryPrefix?: string; color?: string } = {}) {
-    const prefix = options.factoryPrefix ?? "工厂";
-    const factoryName = `${prefix}${label}`;
-    const mpcName = `MPC${label}`;
-    const visible = Boolean(options.defaultVisible);
-    const baseColor = options.color;
+  function lightenHex(hex: string, factor: number): string {
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    const lighten = (c: number) => Math.round(c + (255 - c) * factor);
+    const lr = lighten(r).toString(16).padStart(2, "0");
+    const lg = lighten(g).toString(16).padStart(2, "0");
+    const lb = lighten(b).toString(16).padStart(2, "0");
+    return `#${lr}${lg}${lb}`;
+  }
 
-    if (hasData(factoryData)) {
+  function addPair(label: string, factoryData: Array<number | null>, mpcData: Array<number | null>, options: { yAxisIndex?: number; defaultVisible?: boolean; color?: string } = {}) {
+    // 工厂 = 细实线（浅色），MPC = 虚线（深色），各自独立 legend 条目
+    const visible = Boolean(options.defaultVisible);
+    const mpcColor = options.color ?? "#888";
+    const factoryColor = lightenHex(mpcColor, 0.45);
+    const factoryName = `工厂${label}`;
+    const mpcName = `MPC${label}`;
+    const hasFactory = hasData(factoryData);
+    const hasMpc = hasData(mpcData);
+
+    if (hasFactory) {
       legendData.push(factoryName);
       selected[factoryName] = visible;
       optionSeries.push({
@@ -126,12 +140,12 @@ export function buildPowerChartOption(series: DashboardSeriesPoint[]): Dashboard
         smooth: true,
         yAxisIndex: options.yAxisIndex,
         data: factoryData,
-        lineStyle: { type: "solid", width: visible ? 2.4 : 1.6, color: baseColor },
-        itemStyle: { color: baseColor },
+        lineStyle: { type: "solid", width: 1.2, color: factoryColor },
+        itemStyle: { color: factoryColor },
       });
     }
 
-    if (hasData(mpcData)) {
+    if (hasMpc) {
       legendData.push(mpcName);
       selected[mpcName] = visible;
       optionSeries.push({
@@ -141,17 +155,17 @@ export function buildPowerChartOption(series: DashboardSeriesPoint[]): Dashboard
         smooth: true,
         yAxisIndex: options.yAxisIndex,
         data: mpcData,
-        lineStyle: { type: "dashed", width: visible ? 2.4 : 1.6, color: baseColor },
-        itemStyle: { color: baseColor },
+        lineStyle: { type: "dashed", width: 2, color: mpcColor },
+        itemStyle: { color: mpcColor },
       });
     }
   }
 
-  addPair("电网功率", factoryGrid, mpcGrid, { defaultVisible: true, factoryPrefix: "", color: "#f4b766" });
+  addPair("电网功率", factoryGrid, mpcGrid, { defaultVisible: true, color: "#f4b766" });
   addPair("负荷功率", factoryLoad, mpcLoad, { color: "#ff6b6b" });
   addPair("光伏出力", factoryPv, mpcPv, { color: "#ffd166" });
-  addPair("储能功率", factoryBattery, mpcBattery, { defaultVisible: true, factoryPrefix: "", color: "#22c55e" });
-  addPair("SOC", factorySoc, mpcSoc, { defaultVisible: true, yAxisIndex: 1, factoryPrefix: "", color: "#9b59b6" });
+  addPair("储能功率", factoryBattery, mpcBattery, { defaultVisible: true, color: "#22c55e" });
+  addPair("SOC", factorySoc, mpcSoc, { defaultVisible: true, yAxisIndex: 1, color: "#9b59b6" });
 
   return {
     color: [],

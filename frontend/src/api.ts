@@ -1,4 +1,4 @@
-import type { DashboardResponse, DisplaySeriesResponse, ImportRawDataResponse, MpcHealthStatus, MpcProgress, RunMpcRequest, RunMpcResponse } from "./types";
+import type { DashboardResponse, DisplaySeriesResponse, ImportRawDataResponse, MpcHealthStatus, MpcProgress, MpcProgressHistory, RunMpcRequest, RunMpcResponse } from "./types";
 
 export interface DashboardRequestOptions {
   windowHours: number;
@@ -88,7 +88,7 @@ export function buildImportMpcRunUrl(plantId: string, profile: string): string {
 }
 
 export function buildImportRawDataUrl(): string {
-  return "/api/v1/plants/import-raw-data";
+  return "/api/v1/plants/import-raw-data?auto_aggregate=true&include_irradiance=false";
 }
 
 export async function importRawData(
@@ -238,5 +238,19 @@ export async function fetchMpcProgress(
     { signal },
   );
   if (!response.ok) throw new Error(`progress request failed: HTTP ${response.status}`);
+  return response.json();
+}
+
+export async function fetchMpcProgressHistory(
+  runId: string,
+  sample: number = 1,
+  signal?: AbortSignal,
+): Promise<MpcProgressHistory> {
+  const params = new URLSearchParams();
+  if (sample > 1) params.set("sample", String(sample));
+  const qs = params.toString();
+  const url = `/api/v1/mpc/runs/${encodeURIComponent(runId)}/progress${qs ? `?${qs}` : ""}`;
+  const response = await fetch(url, { signal });
+  if (!response.ok) throw new Error(`progress history request failed: HTTP ${response.status}`);
   return response.json();
 }

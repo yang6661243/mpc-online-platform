@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Upl
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from api.constants import AggregateRequest, RunMpcRequest, normalize_plant_id
+from api.constants import PROFILE_CONFIGS, AggregateRequest, RunMpcRequest, normalize_plant_id
 from api.database.orm import MonthlyDemandRef, MpcRun, MpcRunProgress, StrategyComparison, Telemetry15Min
 from api.services.aggregation import aggregate_telemetry_15min
 from api.services.dashboard import comparison_payload
@@ -120,6 +120,9 @@ def run_mpc(payload: RunMpcRequest, request: Request, session: Session = Depends
 
         # ⑦ 运行 MPC
         request_id = f"{payload.request_id}_{mpc_month}"
+        # 根据 profile 解析对应参数（与 scheduler 路径保持一致）
+        profile_cfg = PROFILE_CONFIGS.get(plant_id, {}).get(payload.profile or "", {})
+        demand_rate = profile_cfg.get("demand_rate", payload.demand_rate)
         try:
             result = run_online_mpc(
                 session, request_id=request_id, plant_id=plant_id,
@@ -128,7 +131,7 @@ def run_mpc(payload: RunMpcRequest, request: Request, session: Session = Depends
                 output_dir=request.app.state.run_output_dir,
                 load_base_kw=payload.load_base_kw or load_base_kw,
                 buy_price=payload.buy_price, sell_price=payload.sell_price,
-                c_deg=payload.c_deg, demand_rate=payload.demand_rate,
+                c_deg=payload.c_deg, demand_rate=demand_rate,
                 billing_days=payload.billing_days,
                 target_peak_kw=target_peak_kw,
                 forecast_model_path=model_path,
@@ -240,7 +243,45 @@ def mpc_run_latest_progress(run_id: str, session: Session = Depends(get_session)
         "grid_power_kw": row.grid_power_kw,
         "load_kw": row.load_kw,
         "pv_kw": row.pv_kw,
+        "arbitrage": getattr(row, "arbitrage", None),
         "elapsed_seconds": row.elapsed_seconds,
+    }
+
+
+@router.get("/api/v1/mpc/runs/{run_id}/progress")
+def mpc_run_progress(
+    run_id: str,
+    sample: int = Query(1, ge=1, le=100, description="Return every Nth row"),
+    session: Session = Depends(get_session),
+):
+    """Return all progress rows for a run, ordered by step ascending."""
+    rows = session.scalars(
+        select(MpcRunProgress)
+        .where(MpcRunProgress.run_id == run_id)
+        .order_by(MpcRunProgress.step.asc())
+    ).all()
+    if not rows:
+        return {"run_id": run_id, "status": "not_started", "progress": []}
+    # Apply sampling
+    sampled = rows[::sample] if sample > 1 else rows
+    return {
+        "run_id": run_id,
+        "progress": [
+            {
+                "step": r.step,
+                "total_steps": r.total_steps,
+                "soc": r.soc,
+                "peak_kw": r.peak_kw,
+                "running_cost": r.running_cost,
+                "battery_power_kw": r.battery_power_kw,
+                "grid_power_kw": r.grid_power_kw,
+                "load_kw": r.load_kw,
+                "pv_kw": r.pv_kw,
+                "arbitrage": getattr(r, "arbitrage", None),
+                "elapsed_seconds": r.elapsed_seconds,
+            }
+            for r in sampled
+        ],
     }
 
 

@@ -3,16 +3,16 @@ from pathlib import Path
 import pandas as pd
 import yaml
 
-from server.api.services.comparison import StrategyMetrics
-from server.api.services.mpc.adapter import MpcScenarioExport
-from server.api.services.mpc.runner import (
+from api.services.comparison import StrategyMetrics
+from api.services.mpc.adapter import MpcScenarioExport
+from api.services.mpc.runner import (
     MicrogridMpcCliRunner,
     MicrogridMpcCliRunnerConfig,
     parse_microgrid_mpc_output,
 )
-from server.api.services.mpc.orchestrator import OnlineMpcRunInput
-from server.api.database.orm import Telemetry15Min
-from server.api.utils.time import parse_timestamp
+from api.services.mpc.orchestrator import OnlineMpcRunInput
+from api.database.orm import Telemetry15Min
+from api.utils.time import parse_timestamp
 
 
 def _write_mpc_output(path: Path):

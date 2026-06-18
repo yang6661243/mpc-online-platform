@@ -68,6 +68,11 @@ _PROGRESS_RE = re.compile(
     r"SOC=([\d.]+)\s+"
     r"peak=([\d.]+)kW\s+"
     r"cost=([\d.]+)\s+"
+    r"bat=([-\d.]+)\s+"
+    r"grid=([-\d.]+)\s+"
+    r"load=([\d.]+)\s+"
+    r"pv=([\d.]+)\s+"
+    r"arb=([-\d.]+)\s+"
     r"elapsed=([\d.]+)s"
 )
 
@@ -82,7 +87,12 @@ def _parse_progress_line(line: str) -> dict | None:
         "soc": float(m.group(3)),
         "peak_kw": float(m.group(4)),
         "running_cost": float(m.group(5)),
-        "elapsed_seconds": float(m.group(6)),
+        "battery_power_kw": float(m.group(6)),
+        "grid_power_kw": float(m.group(7)),
+        "load_kw": float(m.group(8)),
+        "pv_kw": float(m.group(9)),
+        "arbitrage": float(m.group(10)),
+        "elapsed_seconds": float(m.group(11)),
     }
 
 
@@ -136,6 +146,13 @@ def parse_microgrid_mpc_curve(output_path: str | Path) -> list[dict]:
     return points
 
 
+# plant_id → plant config 文件名（不含 .yaml 后缀）
+_PLANT_CONFIG_NAMES: dict[str, str] = {
+    "hehong_huajin": "hehong_huajin",
+    "aolaide": "aodelai",
+}
+
+
 class MicrogridMpcCliRunner:
     def __init__(
         self,
@@ -149,6 +166,40 @@ class MicrogridMpcCliRunner:
         self.command_runner = command_runner or _default_command_runner
         self.python_executable = python_executable or sys.executable
         self.session_factory = session_factory
+
+    @staticmethod
+    def _load_plant_params(project_root: Path, plant_id: str) -> dict[str, dict]:
+        """加载电站专属的电池和电网参数，失败时返回空 dict（走 runner 默认值）。"""
+        from api.constants import normalize_plant_id
+        from api.services.plant_config import load_plant_config
+
+        normalized = normalize_plant_id(plant_id)
+        config_name = _PLANT_CONFIG_NAMES.get(normalized, normalized)
+        config_path = project_root / "mpc" / "configs" / "plants" / f"{config_name}.yaml"
+        if not config_path.exists():
+            logger.warning("Plant config not found: %s, falling back to runner defaults", config_path)
+            return {}
+
+        try:
+            plant = load_plant_config(config_path)
+            return {
+                "battery": {
+                    "capacity_kwh": plant.battery.capacity_kwh,
+                    "charge_max_kw": plant.battery.power_kw,
+                    "discharge_max_kw": plant.battery.power_kw,
+                    "charge_eff": plant.battery.charge_efficiency,
+                    "discharge_eff": plant.battery.discharge_efficiency,
+                },
+                "grid": {
+                    "anti_backflow": plant.grid.anti_backflow,
+                    "import_max_kw": plant.grid.import_max_kw,
+                    "export_max_kw": plant.grid.export_max_kw,
+                    "transformer_capacity_kw": plant.grid.transformer_capacity_kw,
+                },
+            }
+        except Exception as exc:
+            logger.warning("Failed to load plant config %s: %s, falling back to runner defaults", config_path, exc)
+            return {}
 
     def __call__(self, run_input: OnlineMpcRunInput) -> MpcRunnerResult:
         root = Path(self.config.project_root)
@@ -166,8 +217,12 @@ class MicrogridMpcCliRunner:
             "--config", str(config_path),
         ]
 
-        # Stream stdout to capture per‑step progress
-        self._run_with_progress(command, root, run_input.run_id)
+        # Stream stdout to capture per‑step progress (production);
+        # use injected command_runner for tests.
+        if self.command_runner is _default_command_runner:
+            self._run_with_progress(command, root, run_input.run_id)
+        else:
+            self.command_runner(command, root)
 
         logger.info("MPC output: %s", output_path)
         metrics = parse_microgrid_mpc_output(output_path)
@@ -226,6 +281,13 @@ class MicrogridMpcCliRunner:
         if target_peak_kw <= 0:
             raise ValueError("target_peak_kw must be positive")
 
+        # 按 plant_id 加载电站专属电池/电网参数，runner 默认值作为兜底
+        plant_params = self._load_plant_params(
+            Path(self.config.project_root), run_input.plant_id,
+        )
+        battery_cfg = plant_params.get("battery", {})
+        grid_cfg = plant_params.get("grid", {})
+
         result = {
             "scenario": {
                 "data_file": str(run_input.scenario.output_path),
@@ -236,14 +298,14 @@ class MicrogridMpcCliRunner:
                 },
             },
             "battery": {
-                "capacity_kwh": self.config.battery_capacity_kwh,
-                "charge_max_kw": self.config.battery_charge_max_kw,
-                "discharge_max_kw": self.config.battery_discharge_max_kw,
+                "capacity_kwh": battery_cfg.get("capacity_kwh", self.config.battery_capacity_kwh),
+                "charge_max_kw": battery_cfg.get("charge_max_kw", self.config.battery_charge_max_kw),
+                "discharge_max_kw": battery_cfg.get("discharge_max_kw", self.config.battery_discharge_max_kw),
                 "soc_init": soc_init,
                 "soc_min": soc_min,
                 "soc_max": soc_max,
-                "charge_eff": self.config.battery_charge_eff,
-                "discharge_eff": self.config.battery_discharge_eff,
+                "charge_eff": battery_cfg.get("charge_eff", self.config.battery_charge_eff),
+                "discharge_eff": battery_cfg.get("discharge_eff", self.config.battery_discharge_eff),
             },
             "device": {
                 "load_base_kw": run_input.scenario.load_base_kw,
@@ -253,10 +315,10 @@ class MicrogridMpcCliRunner:
                 "wind_efficiency": 0,
             },
             "grid": {
-                "anti_backflow": self.config.anti_backflow,
-                "import_max_kw": self.config.grid_import_max_kw,
-                "export_max_kw": self.config.grid_export_max_kw,
-                "transformer_capacity_kw": self.config.transformer_capacity_kw,
+                "anti_backflow": grid_cfg.get("anti_backflow", self.config.anti_backflow),
+                "import_max_kw": grid_cfg.get("import_max_kw", self.config.grid_import_max_kw),
+                "export_max_kw": grid_cfg.get("export_max_kw", self.config.grid_export_max_kw),
+                "transformer_capacity_kw": grid_cfg.get("transformer_capacity_kw", self.config.transformer_capacity_kw),
             },
             "cost": {
                 "c_deg": run_input.c_deg,

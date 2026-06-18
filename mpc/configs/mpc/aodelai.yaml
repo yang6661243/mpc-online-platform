@@ -2,9 +2,9 @@
 # python -m microgrid.mpc --config configs/mpc/aodelai.yaml
 
 battery:
-  capacity_kwh: 783
-  charge_max_kw: 375
-  discharge_max_kw: 375
+  capacity_kwh: 1044
+  charge_max_kw: 600
+  discharge_max_kw: 600
   soc_init: 0.5
   soc_min: 0.1
   soc_max: 0.9
@@ -26,7 +26,7 @@ grid:
 
 cost:
   c_deg: 0.05
-  demand_rate: 39.0
+  demand_rate: 40.8
   capacity_rate: 0
   billing_days: 30
 

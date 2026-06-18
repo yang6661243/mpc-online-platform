@@ -3,7 +3,7 @@ from fastapi.testclient import TestClient
 from server.api.services.aggregation import aggregate_telemetry_15min
 from server.api.main import create_app
 from server.api.database import create_sqlite_memory_session
-from server.api.database.orm import Telemetry15Min
+from server.api.database.orm import RawTelemetry, Telemetry15Min
 from server.api.utils.time import parse_timestamp
 
 
@@ -472,6 +472,46 @@ def test_display_series_endpoint_rejects_unsupported_window():
 
     assert response.status_code == 400
     assert response.json()["detail"] == "window_hours must be one of 2, 6, or 24"
+
+
+def test_raw_excel_import_aggregates_without_fetching_irradiance_by_default(monkeypatch):
+    import openpyxl
+    from io import BytesIO
+    from sqlalchemy import func, select
+
+    import api.routes.ingestion as ingestion_routes
+
+    session = create_sqlite_memory_session()
+    client = TestClient(create_app(session_factory=lambda: session))
+    calls = []
+
+    def fake_fetch_and_store_irradiance(*_args, **_kwargs):
+        calls.append(_kwargs)
+        return 99
+
+    monkeypatch.setattr(ingestion_routes, "fetch_and_store_irradiance", fake_fetch_and_store_irradiance)
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "和宏华进"
+    ws.append(["时间", "电网功率", "储能功率", "SOC", "购电价(元/kWh)"])
+    ws.append(["2026-06-01 00:00:00", 100, 10, 50, 0.241])
+    ws.append(["2026-06-01 00:15:00", 110, -5, 51, 0.609])
+    buf = BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    response = client.post(
+        "/api/v1/plants/import-raw-data?auto_aggregate=true",
+        files={"file": ("hehong.xlsx", buf.read(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["records_count"] == 2
+    assert body["aggregated_windows"] == 1
+    assert calls == []
+    assert session.scalar(select(func.count()).select_from(RawTelemetry)) == 2
 
 
 def test_import_mpc_run_endpoint_parses_excel_and_returns_run_id():

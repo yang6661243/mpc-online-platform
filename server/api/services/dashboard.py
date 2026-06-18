@@ -156,11 +156,26 @@ def _curve_points_for_run(
     return points
 
 
-def _series_payload(rows: list[Telemetry15Min], curve_by_time: dict) -> list[dict]:
+def _series_payload(rows: list[Telemetry15Min], curve_by_time: dict, *, prefer_curve_mpc: bool = False) -> list[dict]:
     series = []
     for row in rows:
         point = curve_by_time.get(row.start_time)
-        # Prefer MPC data from telemetry_15min (persisted after run), fall back to curve points
+        # When prefer_curve_mpc is True (profile-specific), ONLY use StrategyCurvePoint.
+        # An absent point means this profile has no MPC run yet → MPC fields stay None.
+        # When False (no profile, "give me latest"), use telemetry_15min MPC columns
+        # (always from the latest run) with curve point fallback.
+        if prefer_curve_mpc:
+            mpc_grid = None if point is None else point.mpc_grid_power_kw
+            mpc_battery = None if point is None else point.mpc_battery_power_kw
+            mpc_soc = None if point is None else point.mpc_soc
+            mpc_load = None if point is None else point.mpc_load_kw
+            mpc_pv = None if point is None else point.mpc_pv_kw
+        else:
+            mpc_grid = row.mpc_grid_power_kw_avg if row.mpc_grid_power_kw_avg is not None else (None if point is None else point.mpc_grid_power_kw)
+            mpc_battery = row.mpc_battery_power_kw_avg if row.mpc_battery_power_kw_avg is not None else (None if point is None else point.mpc_battery_power_kw)
+            mpc_soc = row.mpc_soc if row.mpc_soc is not None else (None if point is None else point.mpc_soc)
+            mpc_load = row.mpc_load_kw if row.mpc_load_kw is not None else (None if point is None else point.mpc_load_kw)
+            mpc_pv = row.mpc_pv_kw if row.mpc_pv_kw is not None else (None if point is None else point.mpc_pv_kw)
         series.append(
             {
                 "time": row.end_time.isoformat(),
@@ -170,11 +185,11 @@ def _series_payload(rows: list[Telemetry15Min], curve_by_time: dict) -> list[dic
                 "actual_load_kw": None if point is None else point.actual_load_kw,
                 "actual_pv_kw": None if point is None else point.actual_pv_kw,
                 "load_minus_pv_kw": row.load_minus_pv_kw_avg,
-                "mpc_grid_power_kw": row.mpc_grid_power_kw_avg if row.mpc_grid_power_kw_avg is not None else (None if point is None else point.mpc_grid_power_kw),
-                "mpc_battery_power_kw": row.mpc_battery_power_kw_avg if row.mpc_battery_power_kw_avg is not None else (None if point is None else point.mpc_battery_power_kw),
-                "mpc_soc": row.mpc_soc if row.mpc_soc is not None else (None if point is None else point.mpc_soc),
-                "mpc_load_kw": row.mpc_load_kw if row.mpc_load_kw is not None else (None if point is None else point.mpc_load_kw),
-                "mpc_pv_kw": row.mpc_pv_kw if row.mpc_pv_kw is not None else (None if point is None else point.mpc_pv_kw),
+                "mpc_grid_power_kw": mpc_grid,
+                "mpc_battery_power_kw": mpc_battery,
+                "mpc_soc": mpc_soc,
+                "mpc_load_kw": mpc_load,
+                "mpc_pv_kw": mpc_pv,
                 "buy_price": row.buy_price if row.buy_price is not None else (None if point is None else point.buy_price),
                 "sell_price": row.sell_price if row.sell_price is not None else (None if point is None else point.sell_price),
                 "quality_flag": row.quality_flag,
@@ -371,7 +386,7 @@ def build_dashboard_payload(
     if not rows:
         raise HTTPException(status_code=404, detail="no telemetry found in selected time range")
     curve_by_time = _curve_points_by_time(session, comparison)
-    series = _series_payload(rows, curve_by_time)
+    series = _series_payload(rows, curve_by_time, prefer_curve_mpc=(profile is not None))
     selected_current = rows[-1]
     selected_comparison = (
         None

@@ -77,6 +77,36 @@ def _default_mpc_runner_config(
     return plant_config_to_mpc_cli_config(plant, project_root=root)
 
 
+def _mark_interrupted_runs_failed(session_factory: Callable[[], Session]) -> int:
+    from sqlalchemy import select
+
+    from api.database.orm import MpcRun, utc_now
+
+    session = session_factory()
+    try:
+        runs = list(
+            session.scalars(
+                select(MpcRun).where(MpcRun.status.in_(("running", "running_fuzzy")))
+            )
+        )
+        if not runs:
+            return 0
+        now = utc_now()
+        message = "interrupted: service restarted before this MPC run completed"
+        for run in runs:
+            run.status = "failed"
+            run.finished_at = now
+            if run.error_message:
+                run.error_message = f"{run.error_message}; {message}"[:1000]
+            else:
+                run.error_message = message
+        session.commit()
+        logging.getLogger(__name__).warning("marked %d interrupted MPC runs as failed", len(runs))
+        return len(runs)
+    finally:
+        session.close()
+
+
 def create_app(
     session_factory: Callable[[], Session] | None = None,
     *,
@@ -93,6 +123,7 @@ def create_app(
     health_checker_profiles: list[str] | None = None,
 ) -> FastAPI:
     sf = session_factory or create_session_factory()
+    _mark_interrupted_runs_failed(sf)
     plants = health_checker_plants or ALL_PLANTS
     profiles = health_checker_profiles or ALL_PROFILES
 

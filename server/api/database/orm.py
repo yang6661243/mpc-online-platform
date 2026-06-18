@@ -222,5 +222,6 @@ class MpcRunProgress(Base):
     grid_power_kw: Mapped[float | None] = mapped_column(Float, nullable=True)
     load_kw: Mapped[float | None] = mapped_column(Float, nullable=True)
     pv_kw: Mapped[float | None] = mapped_column(Float, nullable=True)
+    arbitrage: Mapped[float | None] = mapped_column(Float, nullable=True)
     elapsed_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)

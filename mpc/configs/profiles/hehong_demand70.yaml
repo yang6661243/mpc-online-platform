@@ -2,5 +2,5 @@
 # 服务商获得 70% 需量优化收益，30% 分给业主，适度压需量
 profile: demand70
 plant: hehong_huajin
-demand_rate: 27.3
+demand_rate: 28.56
 target_peak_ratio: 0.70

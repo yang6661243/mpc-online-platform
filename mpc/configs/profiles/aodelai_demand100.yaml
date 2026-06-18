@@ -2,5 +2,5 @@
 # 服务商获得 100% 需量优化收益，MPC 激进压需量
 profile: demand100
 plant: ecloud_station_3341
-demand_rate: 39.0
+demand_rate: 40.8
 target_peak_ratio: 1.0
