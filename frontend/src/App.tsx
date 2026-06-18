@@ -16,7 +16,7 @@ import { formatChinaTime } from "./time";
 import "./styles.css";
 
 const DEFAULT_PLANT_ID = "hehong_huajin";
-const APP_FRONTEND_VERSION = "0.1.16";  // XX 部分，改前端代码时 +1
+const APP_FRONTEND_VERSION = "0.1.18";  // XX 部分，改前端代码时 +1
 const AUTO_REFRESH_MS = 60_000;
 
 const MONTH_OPTIONS = [
@@ -214,7 +214,6 @@ export default function App() {
   const [mpcRunResult, setMpcRunResult] = useState<RunMpcResponse | null>(null);
   const [mpcHealth, setMpcHealth] = useState<MpcHealthStatus | null>(null);
   const [mpcProgress, setMpcProgress] = useState<MpcProgress | null>(null);
-  const [mpcProgressWaiting, setMpcProgressWaiting] = useState(false);
   const [plantInfo, setPlantInfo] = useState<{
     name: string; latitude: number; longitude: number;
     pv_capacity_kw: number; battery_power_kw: number;
@@ -283,10 +282,10 @@ export default function App() {
 
   // Poll MPC progress when running (every 3 seconds)
   useEffect(() => {
-    const runId = mpcHealth?.state === "running" ? mpcHealth.last_run_id : null;
+    const isRunning = mpcHealth?.state === "running" || mpcHealth?.state === "running_fuzzy";
+    const runId = isRunning ? mpcHealth.last_run_id : null;
     if (!runId) {
       setMpcProgress(null);
-      setMpcProgressWaiting(false);
       return;
     }
     let active = true;
@@ -295,13 +294,7 @@ export default function App() {
     async function poll() {
       try {
         const result = await fetchMpcProgress(runId!, controller.signal);
-        if (!active) return;
-        if ("step" in result && (result as MpcProgress).step > 0) {
-          setMpcProgress(result as MpcProgress);
-          setMpcProgressWaiting(false);
-        } else {
-          setMpcProgressWaiting(true);
-        }
+        if (active) setMpcProgress("step" in result ? (result as MpcProgress) : null);
       } catch {
         // silently ignore
       }
@@ -781,21 +774,18 @@ export default function App() {
                   {PLANT_OPTIONS.find(p => p.value === plantId)?.label ?? plantId}
                   {" · "}
                   {OPTIMIZATION_TARGETS.find(t => t.value === optimizationTarget)?.label ?? optimizationTarget}
-                  {mpcHealth.last_run_finished_at && !mpcProgress && !mpcProgressWaiting && (
+                  {mpcHealth.last_run_finished_at && mpcHealth.state !== "running" && mpcHealth.state !== "running_fuzzy" && (
                     <>{" · "}{new Date(mpcHealth.last_run_finished_at).toLocaleTimeString("zh-CN", {hour:"2-digit",minute:"2-digit"})}</>
                   )}
                 </small>
               )}
-              {mpcProgressWaiting && (
+              {(mpcHealth?.state === "running" || mpcHealth?.state === "running_fuzzy") && (
                 <small className="mpc-status-detail" style={{textAlign:"center",display:"block",marginTop:2,color:"var(--cyan)",fontSize:11}}>
-                  ⏳ 等待 MPC 进程启动...
-                </small>
-              )}
-              {mpcProgress && mpcProgress.step > 0 && (
-                <small className="mpc-status-detail" style={{textAlign:"center",display:"block",marginTop:2,color:"var(--blue)",fontSize:11}}>
-                  步 {mpcProgress.step}/{mpcProgress.total_steps}
-                  {" · "}SOC {mpcProgress.soc != null ? (mpcProgress.soc * 100).toFixed(1) : "--"}%
-                  {" · "}{Math.round(mpcProgress.elapsed_seconds ?? 0)}秒
+                  {mpcProgress && mpcProgress.step > 0 ? (
+                    <>步 {mpcProgress.step}/{mpcProgress.total_steps} · SOC {((mpcProgress.soc ?? 0) * 100).toFixed(1)}% · {Math.round(mpcProgress.elapsed_seconds ?? 0)}秒</>
+                  ) : (
+                    <>⏳ 计算进行中...</>
+                  )}
                 </small>
               )}
               {mpcHealth?.data_timed_out && (
