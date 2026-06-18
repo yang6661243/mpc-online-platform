@@ -177,7 +177,7 @@ def run_online_mpc(
     buy_price: float = 0.8,
     sell_price: float = 0.3,
     c_deg: float = 0.05,
-    demand_rate: float = 30.0,
+    demand_rate: float = 40.8,
     billing_days: float = 30.0,
     target_peak_kw: float | None = None,
     forecast_model_path: str | None = None,

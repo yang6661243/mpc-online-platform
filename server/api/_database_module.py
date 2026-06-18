@@ -96,3 +96,18 @@ def ensure_runtime_schema(engine) -> None:
                     connection.execute(text(
                         f"ALTER TABLE telemetry_15min ADD COLUMN {column_name} {column_type}"
                     ))
+
+    # Ensure monthly_demand_ref table exists
+    if "monthly_demand_ref" not in inspector.get_table_names():
+        with engine.begin() as connection:
+            connection.execute(text(
+                "CREATE TABLE IF NOT EXISTS monthly_demand_ref ("
+                "  id INTEGER PRIMARY KEY AUTOINCREMENT,"
+                "  plant_id VARCHAR(64) NOT NULL,"
+                "  year_month VARCHAR(7) NOT NULL,"
+                "  reference_peak_kw FLOAT,"
+                "  created_at DATETIME NOT NULL DEFAULT (datetime('now')),"
+                "  updated_at DATETIME NOT NULL DEFAULT (datetime('now')),"
+                "  CONSTRAINT uq_monthly_demand_ref UNIQUE (plant_id, year_month)"
+                ")"
+            ))

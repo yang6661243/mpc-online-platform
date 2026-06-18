@@ -28,14 +28,14 @@ ALL_PROFILES = ["demand100", "demand70", "demand40"]
 
 PROFILE_CONFIGS: dict[str, dict[str, dict]] = {
     "hehong_huajin": {
-        "demand100": {"demand_rate": 39.0, "target_peak_ratio": 1.0, "demand_label": "100%需量+峰谷套利"},
-        "demand70": {"demand_rate": 27.3, "target_peak_ratio": 0.70, "demand_label": "70%需量+峰谷套利"},
-        "demand40": {"demand_rate": 15.6, "target_peak_ratio": 0.40, "demand_label": "40%需量+峰谷套利"},
+        "demand100": {"demand_rate": 40.8, "target_peak_ratio": 1.0, "demand_label": "100%需量+峰谷套利"},
+        "demand70": {"demand_rate": 28.56, "target_peak_ratio": 0.70, "demand_label": "70%需量+峰谷套利"},
+        "demand40": {"demand_rate": 16.32, "target_peak_ratio": 0.40, "demand_label": "40%需量+峰谷套利"},
     },
     "aolaide": {
-        "demand100": {"demand_rate": 39.0, "target_peak_ratio": 1.0, "demand_label": "100%需量+峰谷套利"},
-        "demand70": {"demand_rate": 27.3, "target_peak_ratio": 0.70, "demand_label": "70%需量+峰谷套利"},
-        "demand40": {"demand_rate": 15.6, "target_peak_ratio": 0.40, "demand_label": "40%需量+峰谷套利"},
+        "demand100": {"demand_rate": 40.8, "target_peak_ratio": 1.0, "demand_label": "100%需量+峰谷套利"},
+        "demand70": {"demand_rate": 28.56, "target_peak_ratio": 0.70, "demand_label": "70%需量+峰谷套利"},
+        "demand40": {"demand_rate": 16.32, "target_peak_ratio": 0.40, "demand_label": "40%需量+峰谷套利"},
     },
 }
 
@@ -61,7 +61,7 @@ class RunMpcRequest(BaseModel):
     buy_price: float = 0.8
     sell_price: float = 0.3
     c_deg: float = 0.05
-    demand_rate: float = 30.0
+    demand_rate: float = 40.8
     billing_days: float = 30.0
     target_peak_kw: float | None = Field(default=None, gt=0)
 

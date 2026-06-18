@@ -46,7 +46,23 @@ def run_mpc(payload: RunMpcRequest, request: Request, session: Session = Depends
         raise HTTPException(status_code=400, detail="没有 raw 数据，请先导入电表数据")
     raw_start, raw_end = raw_times[0], raw_times[-1]
 
-    # ── ② 聚合全部 raw 数据 ──
+    # ── ② 检查本月目标需量是否已设置 ──
+    from api.database.orm import MonthlyDemandRef
+    now = datetime.now()
+    year_month = now.strftime("%Y-%m")
+    demand_ref = session.scalar(
+        select(MonthlyDemandRef).where(
+            MonthlyDemandRef.plant_id == plant_id,
+            MonthlyDemandRef.year_month == year_month,
+        )
+    )
+    if demand_ref is None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"请先在右侧面板设置 {year_month} 的目标需量值（kW），再启动 MPC。",
+        )
+
+    # ── ③ 聚合全部 raw 数据 ──
     try:
         aggregate_telemetry_15min(
             session, plant_id=plant_id,

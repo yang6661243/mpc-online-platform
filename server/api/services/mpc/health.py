@@ -50,7 +50,7 @@ STATE_DATA_TIMEOUT = "data_timeout"
 STATE_LABELS: dict[str, str] = {
     STATE_IDLE: "等待数据",
     STATE_ACCUMULATING: "数据积累中",
-    STATE_AWAITING_DEMAND_REF: "等待输入本月参考需量",
+    STATE_AWAITING_DEMAND_REF: "请设置本月目标需量",
     STATE_READY: "数据就绪",
     STATE_RUNNING: "MPC 运行中",
     STATE_RUNNING_FUZZY: "Fuzzy PID 分解中",

@@ -126,7 +126,7 @@ def create_app(
                         actual_metrics=None,  # type: ignore[arg-type]
                         buy_price=0.8, sell_price=0.3,
                         c_deg=0.05,
-                        demand_rate=cfg.get("demand_rate", 39.0),
+                        demand_rate=cfg.get("demand_rate", 40.8),
                         billing_days=30,
                         target_peak_kw=None,
                     )

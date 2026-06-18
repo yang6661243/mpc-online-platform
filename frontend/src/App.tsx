@@ -16,7 +16,7 @@ import { formatChinaTime } from "./time";
 import "./styles.css";
 
 const DEFAULT_PLANT_ID = "hehong_huajin";
-const APP_FRONTEND_VERSION = "0.1.15";  // XX 部分，改前端代码时 +1
+const APP_FRONTEND_VERSION = "0.1.16";  // XX 部分，改前端代码时 +1
 const AUTO_REFRESH_MS = 60_000;
 
 const MONTH_OPTIONS = [
@@ -214,6 +214,7 @@ export default function App() {
   const [mpcRunResult, setMpcRunResult] = useState<RunMpcResponse | null>(null);
   const [mpcHealth, setMpcHealth] = useState<MpcHealthStatus | null>(null);
   const [mpcProgress, setMpcProgress] = useState<MpcProgress | null>(null);
+  const [mpcProgressWaiting, setMpcProgressWaiting] = useState(false);
   const [plantInfo, setPlantInfo] = useState<{
     name: string; latitude: number; longitude: number;
     pv_capacity_kw: number; battery_power_kw: number;
@@ -273,6 +274,7 @@ export default function App() {
     const runId = mpcHealth?.state === "running" ? mpcHealth.last_run_id : null;
     if (!runId) {
       setMpcProgress(null);
+      setMpcProgressWaiting(false);
       return;
     }
     let active = true;
@@ -281,7 +283,13 @@ export default function App() {
     async function poll() {
       try {
         const result = await fetchMpcProgress(runId!, controller.signal);
-        if (active && "step" in result) setMpcProgress(result as MpcProgress);
+        if (!active) return;
+        if ("step" in result && (result as MpcProgress).step > 0) {
+          setMpcProgress(result as MpcProgress);
+          setMpcProgressWaiting(false);
+        } else {
+          setMpcProgressWaiting(true);
+        }
       } catch {
         // silently ignore
       }
@@ -387,14 +395,14 @@ export default function App() {
   useEffect(() => {
     if (mpcHealth?.state !== "awaiting_demand_ref") return;
     const nextValue = window.prompt(
-      `【${mpcHealth.plant_id}】本月参考最大需量尚未设置。\n\n请输入本月参考最大需量值（kW）：`,
+      `【${mpcHealth.plant_id}】本月目标需量尚未设置。\n\n请输入本月目标需量值（kW）：`,
       "",
     );
     if (nextValue !== null) {
       const parsed = Number(nextValue);
       if (Number.isFinite(parsed) && parsed > 0) {
         setMonthlyDemandRef(plantId, parsed).catch((err) => {
-          setMpcRunError(err instanceof Error ? err.message : "设置参考需量失败");
+          setMpcRunError(err instanceof Error ? err.message : "设置目标需量失败");
         });
       }
     }
@@ -753,9 +761,14 @@ export default function App() {
                   {PLANT_OPTIONS.find(p => p.value === plantId)?.label ?? plantId}
                   {" · "}
                   {OPTIMIZATION_TARGETS.find(t => t.value === optimizationTarget)?.label ?? optimizationTarget}
-                  {mpcHealth.last_run_finished_at && !mpcProgress && (
+                  {mpcHealth.last_run_finished_at && !mpcProgress && !mpcProgressWaiting && (
                     <>{" · "}{new Date(mpcHealth.last_run_finished_at).toLocaleTimeString("zh-CN", {hour:"2-digit",minute:"2-digit"})}</>
                   )}
+                </small>
+              )}
+              {mpcProgressWaiting && (
+                <small className="mpc-status-detail" style={{textAlign:"center",display:"block",marginTop:2,color:"var(--cyan)",fontSize:11}}>
+                  ⏳ 等待 MPC 进程启动...
                 </small>
               )}
               {mpcProgress && mpcProgress.step > 0 && (
