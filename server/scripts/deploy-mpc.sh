@@ -238,7 +238,6 @@ if dry "docker buildx build --push"; then
 else
   docker buildx build \
      -f server/deploy/Dockerfile \
-    --platform linux/amd64 \
     --tag "${FULL_IMAGE}" \
     --tag "${IMAGE_NAME}:latest" \
     --push \
