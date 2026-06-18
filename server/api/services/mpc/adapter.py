@@ -98,11 +98,14 @@ def export_mpc_scenario_from_telemetry(
                 "wind_speed": [0.0] * len(rows),
             }
         ).to_excel(writer, sheet_name="pv", index=False)
+        # Use time-varying prices from telemetry if available, else fallback to constants
+        buy_prices = [float(r.buy_price if r.buy_price is not None else buy_price) for r in rows]
+        sell_prices = [float(r.sell_price if r.sell_price is not None else sell_price) for r in rows]
         pd.DataFrame(
             {
                 "time": times,
-                "buy_price": [float(buy_price)] * len(rows),
-                "sell_price": [float(sell_price)] * len(rows),
+                "buy_price": buy_prices,
+                "sell_price": sell_prices,
             }
         ).to_excel(writer, sheet_name="price", index=False)
 
