@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { clearData, fetchDashboard, fetchDisplaySeries, fetchMpcProgress, fetchMpcStatus, importRawData, runMpc, setMonthlyDemandRef, toApiTime } from "./api";
+import { clearData, fetchDashboard, fetchDisplaySeries, fetchMonthlyDemandRef, fetchMpcProgress, fetchMpcStatus, importRawData, runMpc, setMonthlyDemandRef, toApiTime } from "./api";
 import { displaySeriesToDashboardSeries } from "./displaySeries";
 import type { DashboardResponse, DashboardSeriesPoint, DisplaySeriesResponse, ImportRawDataResponse, MpcHealthStatus, MpcProgress, RunMpcResponse } from "./types";
 import {
@@ -269,6 +269,18 @@ export default function App() {
     };
   }, [plantId, optimizationTarget]);
 
+  useEffect(() => {
+    const controller = new AbortController();
+    fetchMonthlyDemandRef(plantId, controller.signal)
+      .then((ref) => {
+        setTargetDemandOverride(ref.reference_peak_kw);
+      })
+      .catch((err: Error) => {
+        if (err.name !== "AbortError") setTargetDemandOverride(null);
+      });
+    return () => controller.abort();
+  }, [plantId, refreshCount]);
+
   // Poll MPC progress when running (every 3 seconds)
   useEffect(() => {
     const runId = mpcHealth?.state === "running" ? mpcHealth.last_run_id : null;
@@ -381,6 +393,7 @@ export default function App() {
         start_time: startTime.toISOString(),
         end_time: now.toISOString(),
         profile: optimizationTarget,
+        target_peak_kw: targetDemandOverride ?? undefined,
       });
       setMpcRunResult(result);
       setRefreshCount((value) => value + 1);
@@ -389,7 +402,7 @@ export default function App() {
     } finally {
       setMpcRunLoading(false);
     }
-  }, [plantId, optimizationTarget]);
+  }, [plantId, optimizationTarget, targetDemandOverride]);
 
   // Monthly demand ref popup — when state is awaiting_demand_ref, prompt user
   useEffect(() => {
@@ -533,9 +546,16 @@ export default function App() {
     if (nextValue !== null) setTargetSocOverride(nextValue);
   }
 
-  function editTargetDemand() {
+  async function editTargetDemand() {
     const nextValue = promptForNumber("请输入目标/给定需量值（kW）", targetDemand);
-    if (nextValue !== null) setTargetDemandOverride(nextValue);
+    if (nextValue === null) return;
+    try {
+      await setMonthlyDemandRef(plantId, nextValue);
+      setTargetDemandOverride(nextValue);
+      setRefreshCount((value) => value + 1);
+    } catch (err) {
+      setMpcRunError(err instanceof Error ? err.message : "设置目标需量失败");
+    }
   }
 
   const [exporting, setExporting] = useState(false);

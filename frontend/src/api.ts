@@ -79,6 +79,10 @@ export async function fetchDisplaySeries(
   return response.json() as Promise<DisplaySeriesResponse>;
 }
 
+export function buildPlantInfoUrl(plantId: string): string {
+  return `/api/v1/plants/${encodeURIComponent(plantId)}/info`;
+}
+
 export function buildImportMpcRunUrl(plantId: string, profile: string): string {
   return `/api/v1/plants/${encodeURIComponent(plantId)}/import-mpc-run?profile=${encodeURIComponent(profile)}`;
 }

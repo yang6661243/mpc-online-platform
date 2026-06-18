@@ -23,6 +23,10 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _resolve_target_peak_kw(payload: RunMpcRequest, demand_ref: MonthlyDemandRef) -> float:
+    return float(payload.target_peak_kw or demand_ref.reference_peak_kw)
+
+
 @router.post("/api/v1/mpc/run")
 def run_mpc(payload: RunMpcRequest, request: Request, session: Session = Depends(get_session)):
     """手动启动 MPC: 聚合 → 辐照度 → 按月分组 → 训练模型 → 逐月 MPC → 持久化 → 启用 scheduler。"""
@@ -61,6 +65,7 @@ def run_mpc(payload: RunMpcRequest, request: Request, session: Session = Depends
             status_code=400,
             detail=f"请先在右侧面板设置 {year_month} 的目标需量值（kW），再启动 MPC。",
         )
+    target_peak_kw = _resolve_target_peak_kw(payload, demand_ref)
 
     # ── ③ 聚合全部 raw 数据 ──
     try:
@@ -125,7 +130,7 @@ def run_mpc(payload: RunMpcRequest, request: Request, session: Session = Depends
                 buy_price=payload.buy_price, sell_price=payload.sell_price,
                 c_deg=payload.c_deg, demand_rate=payload.demand_rate,
                 billing_days=payload.billing_days,
-                target_peak_kw=payload.target_peak_kw,
+                target_peak_kw=target_peak_kw,
                 forecast_model_path=model_path,
                 forecast_history_file=str(history_excel),
             )

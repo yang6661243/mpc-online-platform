@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { buildDashboardUrl, buildDisplaySeriesUrl, buildPlantInfoUrl, buildRunMpcRequestUrl, toApiTime } from "./api";
+import { buildDashboardUrl, buildDisplaySeriesUrl, buildMonthlyDemandRefUrl, buildPlantInfoUrl, buildRunMpcRequestUrl, toApiTime } from "./api";
 
 describe("dashboard API", () => {
   test("builds a dashboard URL with run id and explicit time range", () => {
@@ -21,6 +21,10 @@ describe("dashboard API", () => {
 
   test("builds a plant info URL for the factory hover popup", () => {
     expect(buildPlantInfoUrl("hehong_huajin")).toBe("/api/v1/plants/hehong_huajin/info");
+  });
+
+  test("builds the monthly target demand URL", () => {
+    expect(buildMonthlyDemandRefUrl("hehong_huajin")).toBe("/api/v1/plants/hehong_huajin/monthly-demand-ref");
   });
 
   test("preserves datetime-local values as local API timestamps", () => {
